@@ -1,0 +1,3 @@
+/home/kleber/Downloads/games/none.gb
+crash.bin
+crash.cue

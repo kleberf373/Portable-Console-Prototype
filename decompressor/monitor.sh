@@ -1,13 +1,31 @@
 #!/bin/bash
 
 # Configuration
-DOWNLOAD_DIR="./Downloads"
-EXTRACT_DIR="./Downloads/games"
-DECOMPRESSOR_SCRIPT="./decompressor.sh"
-OUTPUT_FILE="games_list.txt"
-LOG_FILE="decompression.log"
+DOWNLOAD_DIR="$HOME/Downloads"
+EXTRACT_DIR="$HOME/Downloads/games"
+DECOMPRESSOR_SCRIPT="$HOME/Portable-Console-Prototype/decompressor/decompressor.sh"
+OUTPUT_FILE="$HOME/Portable-Console-Prototype/decompressor/cache.txt"
+LOG_FILE="$HOME/decompression.log"
 PYTHON_SCRIPT="jsonconverter.py"
-PYTHON_SCRIPT_ARGS="games_list.txt $EXTRACT_DIR -o ~/playground/IFRN/Portable-Console-Prototype/GUI/games.json"
+PYTHON_SCRIPT_ARGS="$OUTPUT_FILE $EXTRACT_DIR -o $HOME/Portable-Console-Prototype/GUI/games.json"
+# Add this line to the top of monitor.sh with your other configurations
+USB_COPIER_SCRIPT="$HOME/Portable-Console-Prototype/decompressor/check_usb_devices.sh" 
+
+check_usb_drives() {
+    # Ensure the USB copier script is executable
+    if [ ! -f "$USB_COPIER_SCRIPT" ]; then
+        log_message "ERROR: USB Copier script not found at $USB_COPIER_SCRIPT"
+        return 1
+    fi
+    if [ ! -x "$USB_COPIER_SCRIPT" ]; then
+        chmod +x "$USB_COPIER_SCRIPT"
+    fi
+    
+    log_message "Starting USB file transfer..."
+    # Execute the dedicated script
+    "$USB_COPIER_SCRIPT"
+}
+
 
 # Common ROM file extensions, used for USB and loose file checks
 ROM_EXTENSIONS=(
@@ -43,7 +61,7 @@ run_json_converter() {
     local rom_count=$(wc -l < "$output_file" 2>/dev/null || echo 0)
     if [ "$rom_count" -eq 0 ]; then log_message "WARNING: No ROMs found in $output_file. Skipping JSON conversion."; return 1; fi
     log_message "Running JSON converter: python3 $PYTHON_SCRIPT $PYTHON_SCRIPT_ARGS"
-    if python3 "$PYTHON_SCRIPT" games_list.txt "$EXTRACT_DIR" -o games.json; then
+    if python3 "$PYTHON_SCRIPT" cache.txt "$EXTRACT_DIR" -o games.json; then
         log_message "✓ JSON conversion successful. Output: $EXTRACT_DIR/games.json"
         log_message "✓ Converted $rom_count ROMs to JSON format"
         return 0
@@ -85,81 +103,69 @@ cleanup_temp_dirs() {
     fi
 }
 
-# --- NEW FUNCTION: Check for and copy files from USB drives ---
-check_usb_drives() {
-    log_message "=== Checking for USB drives ==="
-    if ! command -v lsblk &> /dev/null; then
-        log_message "WARNING: 'lsblk' command not found. Skipping USB drive check."
-        return
-    fi
-    
-    # Find mounted USB drives
-    lsblk -o MOUNTPOINT,TRAN | grep -i "usb" | awk '{print $1}' | while read -r mount_point; do
-        if [ -d "$mount_point" ]; then
-            log_message "Found USB drive at: $mount_point"
-            
-            # Check if we have processed this drive before
-            if [ -f "$mount_point/.processed_by_monitor" ]; then
-                log_message "USB drive already processed. Skipping."
-                continue
-            fi
-            
-            log_message "Searching for new files on USB drive..."
-            # Use rsync to copy new compressed files and ROMs
-            # -a: archive mode, -v: verbose, --ignore-existing, --progress
-            rsync -av --ignore-existing --progress "$mount_point/" "$DOWNLOAD_DIR/" \
-                --include='*.zip' --include='*.rar' --include='*.7z' \
-                $(for ext in "${ROM_EXTENSIONS[@]}"; do echo "--include=**/*.$ext"; done) \
-                --exclude='*'
-            
-            log_message "Finished copying files from $mount_point"
-            # Mark the drive as processed
-            touch "$mount_point/.processed_by_monitor"
-            log_message "Marked USB drive as processed."
-        fi
-    done
-}
-
 # --- NEW FUNCTION: Process loose ROMs in the Downloads folder ---
 process_loose_roms() {
     log_message "=== Checking for loose ROM files in $DOWNLOAD_DIR ==="
-    local new_rom_found=0
-    
-    # Build find command arguments for all ROM extensions
-    local find_args=()
-    for ext in "${ROM_EXTENSIONS[@]}"; do
-        find_args+=(-o -name "*.$ext")
-    done
-    # Remove the first "-o"
-    unset find_args[0]
-    
-    # Find all loose ROMs in the download directory
-    find "$DOWNLOAD_DIR" -maxdepth 1 -type f \( "${find_args[@]}" \) -print0 | while IFS= read -r -d '' rom_file; do
-        local filename=$(basename "$rom_file")
+    local found_roms=false
+    # Define compressed extensions here for filtering against ROM_EXTENSIONS
+    local compressed_extensions=("zip" "rar" "7z" "tar" "gz" "bz2" "xz" "tgz" "tbz" "txz")
+
+    # Find loose ROMs in Downloads that are NOT compressed files
+    # This uses find with null-separated output for safe handling of filenames with spaces
+    while IFS= read -r -d $'\0' file_path; do
         
-        # Check if the ROM is already in our list
-        if grep -q -x "$filename" "$OUTPUT_FILE"; then
-            log_message "Duplicate loose ROM found, deleting: $filename"
-            rm "$rom_file"
-        else
-            log_message "New loose ROM found: $filename. Moving to games folder."
-            # Move the new ROM to the games directory
-            if mv "$rom_file" "$EXTRACT_DIR/"; then
-                # Add the new ROM to the list
-                echo "$filename" >> "$OUTPUT_FILE"
-                log_message "✓ Added $filename to the list."
-                new_rom_found=1
-            else
-                log_message "✗ Failed to move $filename."
+        local filename=$(basename "$file_path")
+        # Declare and assign separately to avoid SC2155
+        local extension
+        extension="${filename##*.}"
+        local new_path="$EXTRACT_DIR/$filename"
+        local should_list=true
+
+        log_message "Processing loose ROM: $filename"
+
+        # 1. Move the ROM to the EXTRACT_DIR/games folder
+        if mv "$file_path" "$new_path"; then
+            log_message "Moved: $filename to $EXTRACT_DIR"
+
+            # 2. Check extension for CUE/BIN logic (case-insensitive check)
+            case "${extension,,}" in
+                # BIN files should be copied but NOT written to the list
+                bin)
+                    log_message "BIN file found. Copying only, skipping addition to cache.txt."
+                    should_list=false
+                    ;;
+                # CUE files act as the manifest and SHOULD be listed
+                cue)
+                    log_message "CUE file found. Writing to cache.txt."
+                    should_list=true
+                    ;;
+                # Other ROMs are listed by default
+                *)
+                    log_message "Standard ROM file found. Writing to cache.txt."
+                    should_list=true
+                    ;;
+            esac
+            
+            if [ "$should_list" = true ]; then
+                # 3. Add to the games list file
+                echo "$new_path" >> "$OUTPUT_FILE"
+                found_roms=true
             fi
+        else
+            log_message "ERROR: Failed to move loose ROM: $filename"
         fi
-    done
     
-    if [ "$new_rom_found" -eq 0 ]; then
+    # 4. The filter logic for 'find':
+    done < <(find "$DOWNLOAD_DIR" -maxdepth 1 -type f -print0 | \
+             grep -z -i -E "\.($(IFS='|'; echo "${ROM_EXTENSIONS[*]}"))$" | \
+             grep -z -v -E "\.($(IFS='|'; echo "${compressed_extensions[*]}"))$")
+
+    if [ "$found_roms" = true ]; then
+        log_message "New loose ROMs found and moved."
+    else
         log_message "No new loose ROMs found."
     fi
 }
-
 # --- MAIN PROCESSING LOGIC (UNCHANGED CORE, MODIFIED FLOW) ---
 process_compressed_files() {
     local file_count=0

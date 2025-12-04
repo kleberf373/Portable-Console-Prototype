@@ -5,7 +5,9 @@ import os
 import subprocess
 import json
 import pygame
+from PIL import Image, ImageTk
 
+os.path.dirname(os.path.abspath(__file__))
 from .remapper_gui import ControllerRemapperFrame
 
 class TouchMenuApp:
@@ -13,14 +15,14 @@ class TouchMenuApp:
         self.root = root
         self.root.title("Touch Menu")
         self.root.geometry("1024x600")
-        self.root.configure(bg="#36b0e8")
+        self.root.configure(background="dark green")
         self.root.resizable(True, True)
         self.root.minsize(width=788, height=588)
 
         self.big_font = Font(family='Helvetica', size=24, weight='bold')
         self.style = ttk.Style()
         self.style.theme_use('clam')
-        self.style.configure('Main.TFrame', background="#36b0e8")
+        self.style.configure('Main.TFrame', bg= "dark green")
         self.style.configure('Small.TButton', font=self.big_font, padding=30, relief='flat', foreground='white')
         self.style.map('Small.TButton', background=[('active', '#2980b9'), ('pressed', '#1c638e')])
         
@@ -35,6 +37,28 @@ class TouchMenuApp:
         self.last_nav_time = 0 # For debouncing D-pad input
         self.NAV_DEBOUNCE_MS = 180 # Cooldown between navigation inputs (in milliseconds)
         # ### NEW: END ###
+
+        self.load_console_images()
+
+        
+    def load_console_images(self): 
+        self.console_images = {}  
+
+        ICON_SIZE = (280, 90)
+
+        image_paths = {"Super Nintendo": f"{os.path.dirname(os.path.abspath(__file__))}/../assets/supernintendo.png",
+        "Mega Drive": f"{os.path.dirname(os.path.abspath(__file__))}/../assets/MegaDrive.png",
+        "Game Boy": f"{os.path.dirname(os.path.abspath(__file__))}/../assets/gameboy.png",
+        "Game Boy Advance": f"{os.path.dirname(os.path.abspath(__file__))}/../assets/gameboy_advance.png",
+        "Playstation 1": f"{os.path.dirname(os.path.abspath(__file__))}/../assets/playstation.png",
+        }
+        for console, path in image_paths.items():
+            if isinstance(path, str) and os.path.exists(path):
+                img = Image.open(path).resize(ICON_SIZE, Image.LANCZOS)
+                self.console_images[console] = ImageTk.PhotoImage(img)
+            else:
+                print(f"Erro: caminho inválido ou tipo incorreto para {console}: {path}")
+
 
         self.games_data = {}
         self.load_games_data("games.json")
@@ -144,45 +168,95 @@ class TouchMenuApp:
         new_index = (old_index + direction) % len(self.navigable_widgets)
         
         self._update_focus(old_index, new_index)
+        
+        # Garantir que o widget focado esteja visível, especialmente em listas longas (GameListFrame)
+        new_widget = self.navigable_widgets[new_index]
+        current_frame = new_widget.winfo_toplevel().winfo_children()[0].winfo_children()[0]
+
+        # Se o frame atual for GameListFrame e o widget focado estiver no canvas...
+        if isinstance(current_frame, GameListFrame) and new_widget != current_frame.back_button:
+            current_frame.scroll_to_widget(new_widget)
 
     def _update_focus(self, old_index: int, new_index: int):
         """Update the visual style of the buttons to show focus."""
-        # Remove focus from the old widget, if it exists
+        # 1. Remove focus from the old widget, if it exists
         if old_index != -1 and old_index < len(self.navigable_widgets):
             widget = self.navigable_widgets[old_index]
-            # Infer original style from the widget's text
-            original_style = 'Remapper.TButton' if "CONFIGURE" in widget.cget('text') else 'Small.TButton'
+            
+            # ### CORREÇÃO DE RESTAURAÇÃO DE FOCO (Baseado no tipo) ###
+            if isinstance(widget, ttk.Label):
+                # Se for Label, restaura para o estilo base do Remapper Label
+                original_style = 'Remapper.TLabel' 
+            else: # Deve ser um Button
+                text = widget.cget('text')
+                
+                if "CONFIGURE" in text:
+                    original_style = 'Remapper.TButton'
+                elif "Back to Consoles" in text or not text: 
+                     original_style = 'Small.TButton'
+                else: 
+                    original_style = 'Game.TButton'
+
             widget.configure(style=original_style)
 
-        # Apply focus to the new widget
+        # 2. Apply focus to the new widget
         if new_index != -1 and new_index < len(self.navigable_widgets):
             widget = self.navigable_widgets[new_index]
-            widget.configure(style='Focus.TButton')
+            
+            # ### CORREÇÃO CRÍTICA: USAR O ESTILO CORRETO (Baseado no tipo) ###
+            if isinstance(widget, ttk.Button):
+                focus_style = 'Focus.TButton'
+            elif isinstance(widget, ttk.Label):
+                # Aplicar o estilo específico de Label para manter a geometria
+                focus_style = 'Focus.TLabel' 
+            else:
+                focus_style = 'Focus.TButton' # Fallback
+                
+            widget.configure(style=focus_style)
             self.current_focus_index = new_index
-    # ### NEW: END ###
-
+            
     def setup_styles(self):
         self.big_font = Font(family='Helvetica', size=24, weight='bold')
         self.style = ttk.Style()
         self.style.theme_use('clam')
-        self.style.configure('Main.TFrame', background="#36b0e8")
-        self.style.configure('Small.TButton', font=self.big_font, padding=30, relief='flat', foreground='white')
-        self.style.map('Small.TButton', background=[('active', '#2980b9'), ('pressed', '#1c638e')])
-
-        self.style.map('Small.TButton', background=[('active', '#0056b3')])
-        self.style.configure(
-            'Remapper.TButton', font=('Helvetica', 18, 'bold'), foreground='black',
-            background='#FFC107', padding=(25, 12), relief='raised', borderwidth=5
-        )
-        self.style.map('Remapper.TButton', background=[('active', '#E0A800')])
+        self.style.configure('Main.TFrame', background="dark green")
+        self.style.configure('Small.TButton', padding=15, relief='raised', foreground='black')
+        self.style.configure('Game.TButton', font=('Helvetica', 20, 'bold'), padding=20, background='white', foreground='black', relief='raised')
+        self.style.map('Small.TButton', background=[('active', "#2ad6d6")])
+        self.style.map('Custom.TButton', background=[('active', 'white'),('pressed','light green')])
+        self.style.configure('Remapper.TButton', font=('Helvetica', 18, 'bold'), foreground='black',
+            background='white', padding=(25, 12), relief='raised', borderwidth=5)
+        self.style.map('Remapper.TButton', background=[('active', '#2ad6d6')])
         
         # ### NEW: Style for the visually focused button ###
         self.style.configure(
-            'Focus.TButton', font=('Helvetica', 18, 'bold'), foreground='black',
-            background='#52D171', padding=(25, 12), relief='raised', borderwidth=5,
-            bordercolor='white'
+            'Game.TButton', 
+            font=('Helvetica', 18, 'bold'), # Ajustado para font 18 (igual ao Focus.TButton)
+            padding=(25, 12), 
+            background='white', 
+            foreground='black', 
+            relief='raised',
+            borderwidth=5 
         )
-        # ### NEW: END ###
+
+        self.style.configure(
+            'Remapper.TLabel', 
+            font=('Helvetica', 16), 
+            background='dark green', 
+            foreground='white',
+            relief='raised', 
+            borderwidth=2,
+            padding=(5, 5))
+        
+        self.style.configure(
+            'Focus.TLabel', 
+            font=('Helvetica', 16), 
+            background='#52D171', # Cor de Foco
+            foreground='black',
+            relief='raised', 
+            borderwidth=2,
+            padding=(5, 5)
+        )
         
     def load_games_data(self, json_path):
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -213,20 +287,30 @@ class MainMenuFrame(ttk.Frame):
         super().__init__(parent, style='Main.TFrame')
         self.controller = controller
         # ### NEW: Store buttons for navigation ###
-        self.navigable_buttons = []
+        self.navigable_buttons = []     
 
-        ttk.Label(self, text="Select Console or Configure", font=controller.big_font).pack(pady=40)
+        ttk.Label(self, text="Select Console", 
+                  font=controller.big_font, 
+                  foreground='green', 
+                  padding=(25, 12), 
+                  relief= 'flat', 
+                  borderwidth=5,).pack(pady=40, padx=20)
         
-        remapper_btn = ttk.Button(self, text="🎮 CONFIGURE GAMEPAD ⌨️",
+        Remapper_btn = ttk.Button(self, text="GAMEPAD CONFIGURE ⌨️",
                    command=lambda: controller.show_frame("ControllerRemapperFrame"), 
                    style='Remapper.TButton')
-        remapper_btn.pack(pady=30, padx=50)
-        self.navigable_buttons.append(remapper_btn)
+        Remapper_btn.pack(pady=20, padx=50)
+        self.navigable_buttons.append(Remapper_btn)
+
+        # container dos botões dos consoles
+        self.console_container = ttk.Frame(self, style="Console.TFrame")
+        self.console_container.pack(fill="both", pady=20)
 
         self.console_container = ttk.Frame(self, style='Main.TFrame')
         self.console_container.pack(pady=20)
         
         self.generate_console_buttons()
+    
 
     # ### NEW: Expose the list of buttons to the main controller ###
     def get_navigable_widgets(self):
@@ -235,22 +319,28 @@ class MainMenuFrame(ttk.Frame):
     def generate_console_buttons(self):
         for widget in self.console_container.winfo_children():
             widget.destroy()
-        
-        # ### NEW: Clear and repopulate the console buttons in the navigation list ###
-        # We keep the remapper button and add the console buttons after it.
+
         self.navigable_buttons = self.navigable_buttons[:1]
 
         consoles = self.controller.games_data.keys()
         if not consoles:
             ttk.Label(self.console_container, text="No consoles found in games.json.").pack()
             return
-            
+
         for console_name in consoles:
-            btn = ttk.Button(self.console_container, text=console_name, 
-                       command=lambda c=console_name: self.controller.show_frame("GameListFrame", console_name=c),
-                       style='Small.TButton')
-            btn.pack(side=tk.LEFT, padx=10, pady=10)
+            image = self.controller.console_images.get(console_name)
+
+            btn = ttk.Button(
+                self.console_container,
+                image=image if image else None,
+                text="" if image else console_name,
+                command=lambda c=console_name: self.controller.show_frame("GameListFrame", console_name=c),
+                style='Small.TButton'
+            )
+
+            btn.pack(fill='x', pady=10)
             self.navigable_buttons.append(btn)
+
 
 class GameListFrame(ttk.Frame):
     def __init__(self, parent, controller):
@@ -264,7 +354,7 @@ class GameListFrame(ttk.Frame):
         self.header_label.grid(row=0, column=0, columnspan=2, pady=10) # <-- USE GRID
         
         # 2. Setup Canvas and Scrollbar (Middle Row)
-        self.canvas = tk.Canvas(self, bg="#36b0e8", highlightthickness=0) # <-- CORRECT PARENT: self
+        self.canvas = tk.Canvas(self, bg='dark green', highlightthickness=0) # <-- CORRECT PARENT: self
         self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview) # <-- CORRECT PARENT: self
 
         self.canvas.grid(row=1, column=0, sticky="nsew", padx=50) # <-- USE GRID
@@ -277,9 +367,16 @@ class GameListFrame(ttk.Frame):
 
         # Configure Canvas scrolling
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        
+        # Altere o lambda para usar o método bbox na lista de quadros
         self.list_frame.bind("<Configure>", lambda e: self.canvas.configure(
             scrollregion=self.canvas.bbox("all"),
             width=self.canvas.winfo_width()
+        ))
+        
+        # Otimização: Adicione uma reconfiguração do scrollregion inicial
+        self.list_frame.bind("<Map>", lambda e: self.canvas.configure(
+            scrollregion=self.canvas.bbox("all")
         ))
         
         # 4. Back Button (Bottom Row)
@@ -292,14 +389,15 @@ class GameListFrame(ttk.Frame):
         # Configure weights for the grid to make the canvas expand
         self.grid_rowconfigure(1, weight=1) # The Canvas row gets the extra space
         self.grid_columnconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=0) # Scrollbar column is fixed size
+        self.grid_columnconfigure(1, weight=0) 
+        
     # ### NEW: Expose the list of buttons to the main controller ###
     def get_navigable_widgets(self):
         return self.navigable_buttons
 
     def set_console(self, console_name):
         self.console_name = console_name
-        self.header_label.config(text=f"Games - {console_name}")
+        self.header_label.config(foreground='green', borderwidth=5, padding=(25, 12), text=f"Games - {console_name}")
 
     def generate_game_list(self):
         for widget in self.list_frame.winfo_children():
@@ -313,9 +411,46 @@ class GameListFrame(ttk.Frame):
         for game in self.controller.games_data.get(self.console_name, []):
             btn = ttk.Button(self.list_frame, text=game['name'], 
                        command=lambda g=game: self.controller.launch_game(g),
-                       style='Small.TButton')
+                       style='Game.TButton', )
             btn.pack(fill='x', pady=5)
             self.navigable_buttons.append(btn)
         
         # Add the back button to the end of the navigation list
         self.navigable_buttons.append(self.back_button)
+    
+    def scroll_to_widget(self, widget):
+        """Scrolls the canvas to ensure the given widget is visible."""
+        # 1. Obter as coordenadas do widget (relativas ao list_frame)
+        self.list_frame.update_idletasks()
+        widget_y1 = widget.winfo_y()
+        widget_height = widget.winfo_height()
+        widget_y2 = widget_y1 + widget_height
+        
+        # Obter a altura total do frame interno (list_frame)
+        list_frame_height = self.list_frame.winfo_height()
+        if list_frame_height == 0:
+            return
+
+        # 2. Obter a área de visualização atual do canvas
+        canvas_height = self.canvas.winfo_height()
+        
+        # A posição 0 (topo) da rolagem é uma fração. O denominador deve ser list_frame_height
+        canvas_view_start_fraction = float(self.canvas.yview()[0])
+        # Converter a fração da vista atual para pixels (referente ao list_frame)
+        canvas_view_start = canvas_view_start_fraction * list_frame_height
+        canvas_view_end = canvas_view_start + canvas_height
+
+        # 3. Calcular a rolagem necessária
+        # Se o widget estiver acima da vista, mova o topo do widget para o topo da vista
+        if widget_y1 < canvas_view_start:
+            # Rolar para que o topo do widget fique no topo da vista.
+            # Adicione uma margem (padding) para que não fique colado no topo.
+            target_fraction = (widget_y1 - widget_height) / list_frame_height # Desloca o topo do widget um pouco acima da vista
+            self.canvas.yview_moveto(max(0.0, target_fraction))
+        
+        # Se o widget estiver abaixo da vista, mova o fundo do widget para o fundo da vista
+        elif widget_y2 > canvas_view_end:
+            # Rolar para que o fundo do widget fique no fundo da vista.
+            # Adicione uma margem (padding) para que não fique colado no fundo.
+            target_fraction = (widget_y2 - canvas_height + widget_height) / list_frame_height # Desloca o fundo do widget um pouco abaixo da vista
+            self.canvas.yview_moveto(min(1.0, target_fraction))

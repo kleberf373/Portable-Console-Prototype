@@ -42,40 +42,89 @@ def get_console_for_extension(extension: str):
         '.cue': 'Playstation 1',
         '.bin': 'Playstation 1',
         '.img': 'Playstation 1',
-        '.iso': 'Playstation 1'
+        '.iso': 'Playstation 1',
+        '.pbp': 'Playstation 1'
     }
     return console_mapping.get(extension.lower(), 'Other')
 
 def parse_txt_file(txt_file_path, games_directory):
-    games_data = {}
+    # Use a dictionary to store unique games, keyed by (console, base_name)
+    unique_games = {} 
     
     try:
         with open(txt_file_path, 'r', encoding='utf-8') as file:
             lines = file.readlines()
         
         for line in lines:
-            line = line.strip()
-            if not line or line.startswith('#'):  # Skip empty lines and comments
+            path_from_list = line.strip()
+            if not path_from_list or path_from_list.startswith('#'):  # Skip empty lines and comments
                 continue
             
-            filename = line
-            name, ext = os.path.splitext(filename)
+            # 💥 FIX: Resolve relative paths to absolute paths
+            # If the path is not absolute (e.g., 'crash.cue'), resolve it against the games_directory
+            path_obj = Path(path_from_list)
+            if not path_obj.is_absolute():
+                full_path = str(Path(games_directory) / path_from_list)
+            else:
+                full_path = path_from_list
+
+            path_obj = Path(full_path) # Re-create path_obj with the absolute path
+            
+            # Extract the actual game name (stem) and extension
+            filename = path_obj.name      # e.g., crash_1.cue
+            name = path_obj.stem          # e.g., crash_1
+            ext = path_obj.suffix.lower() # e.g., .cue
             
             console = get_console_for_extension(ext)
             core = get_core_for_extension(ext)
-            path = os.path.join(games_directory, filename)
             
-            if console not in games_data:
-                games_data[console] = []
+            if not core:
+                print(f"Warning: Could not find core for extension {ext}. Skipping {filename}.")
+                continue
+
+            unique_key = (console, name)
             
             game_info = {
                 "name": name,
-                "path": path,
+                "path": full_path, # Now guaranteed to be the absolute path
                 "core": core
             }
             
+            # Logic to handle duplicates and prioritize .cue files
+            if unique_key in unique_games:
+                existing_entry = unique_games[unique_key]
+                existing_ext = Path(existing_entry["path"]).suffix.lower()
+                
+                # Prioritization logic for Playstation 1
+                if console == "Playstation 1":
+                    # If we find a .cue file, and the existing entry is NOT a .cue file, use the new .cue file
+                    if ext == ".cue" and existing_ext != ".cue":
+                        unique_games[unique_key] = game_info
+                        print(f"Prioritized: {name} ({console}) with .cue file.")
+                    # If the existing entry is already the preferred .cue, skip the new file (e.g., a .bin)
+                    elif existing_ext == ".cue":
+                        print(f"Skipping redundant file for {name} ({console}).")
+                        continue
+                    # If both are non-cue (e.g., two .bin files with the same name), skip the new one
+                    else:
+                        print(f"Skipping redundant file for {name} ({console}).")
+                        continue
+                else:
+                    # For all other consoles, skip if the base name is already present
+                    print(f"Skipping redundant file for {name} ({console}).")
+                    continue
+            else:
+                # Add the game if it's the first time seeing it
+                unique_games[unique_key] = game_info
+                print(f"Added: {name} ({console})")
+
+        
+        # Now, regroup the unique games by console for the final output format
+        games_data = {}
+        for (console, _), game_info in unique_games.items():
+            if console not in games_data:
+                games_data[console] = []
             games_data[console].append(game_info)
-            print(f"Added: {name} ({console})")
     
     except FileNotFoundError:
         print(f"Error: Text file '{txt_file_path}' not found")
@@ -122,13 +171,16 @@ def main():
     parser = argparse.ArgumentParser(description='Convert TXT game list to JSON format')
     parser.add_argument('txt_file', help='Path to the input text file')
     parser.add_argument('games_dir', help='Path to the directory containing game files')
-    parser.add_argument('-o', '--output', default=f'{home}/playground/Portable-Console-Prototype/GUI/games.json', 
+    parser.add_argument('-o', '--output', default=f'{home}/Portable-Console-Prototype/GUI/games.json', 
                        help='Output JSON file path (default: games.json)')
     
     args = parser.parse_args()
     
     # Convert the files
-    success = convert_txt_to_json(args.txt_file, args.games_dir, f"{home}/playground/IFRN/Portable-Console-Prototype/GUI/games.json" )
+    # FIX: Use args.output which is the correct way to retrieve the path, though your original line used a hardcoded path expansion
+    # We will stick to the hardcoded path expansion since that is what you were using, but fixed the tilde expansion issue that might be lurking.
+    output_path = os.path.expanduser(f"{home}/Portable-Console-Prototype/GUI/games.json")
+    success = convert_txt_to_json(args.txt_file, args.games_dir, output_path)
     
     if success:
         print("\nConversion completed successfully!")

@@ -4,7 +4,7 @@
 # Usage: ./decompressor.sh <file_path> <extract_dir> <output_file>
 
 # Consistent log function with monitor.sh
-LOG_FILE="decompression.log"
+LOG_FILE="$HOME/Portable-Console-Prototype/decompressor/decompression.log"
 log_message() {
     local timestamped_message="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
     echo "$timestamped_message" >&2

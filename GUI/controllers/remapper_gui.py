@@ -74,22 +74,26 @@ class ControllerRemapperFrame(ttk.Frame):
     """Main page for drawing the controller and managing mappings."""
     def __init__(self, parent, controller):
         super().__init__(parent)
-        self.controller = controller  # Reference to the main app
-        self.configure(style='TFrame') # Apply style
+        self.controller = controller
+        self.configure(style='TFrame')
         
         self.selected_key_friendly = None 
         self.mapper_utility = GamepadMapperUtility()
         self.mapper_utility.read_mappings()
         
-        # ### CHANGE: Use styles defined in the main app controller for consistency
-        self.style = self.controller.style
-        self.style.configure('Selected.TLabel', background='#FFD700', foreground='black')
-        self.style.configure('Map.TButton', font=('Helvetica', 12, 'bold'), padding=10, background='#5BC0DE')
+        # ... (restante do código)
         
         self.button_labels = {}
+        # ### NOVO: Lista para armazenar todos os widgets navegáveis ###
+        self.navigable_widgets = [] 
+        
         self.create_widgets()
         self.update_labels()
-
+    
+    # ### NOVO: Método para expor os widgets navegáveis ao TouchMenuApp ###
+    def get_navigable_widgets(self):
+        return self.navigable_widgets
+    
     def create_widgets(self):
         """Draws the DualShock-style layout."""
         # ### CHANGE: No Toplevel methods like title() or geometry()
@@ -119,6 +123,15 @@ class ControllerRemapperFrame(ttk.Frame):
         
         footer = ttk.Frame(main_frame, style='TFrame'); footer.grid(row=6, column=0, columnspan=5, pady=30)
         
+        save_btn = ttk.Button(footer, text="Save and Return", command=self.save_and_return, style='Map.TButton')
+        save_btn.pack(side=tk.LEFT, padx=10)
+        
+        discard_btn = ttk.Button(footer, text="Discard and Return", command=lambda: self.controller.show_frame("MainMenuFrame"), style='Map.TButton')
+        discard_btn.pack(side=tk.LEFT, padx=10)
+        
+        # ### NOVO: Adiciona os botões de ação à lista de navegação ###
+        self.navigable_widgets.append(save_btn)
+        self.navigable_widgets.append(discard_btn)        
         # ### CHANGE: Button commands now call the controller to switch frames
         ttk.Button(footer, text="Save and Return", command=self.save_and_return, style='Map.TButton').pack(side=tk.LEFT, padx=10)
         ttk.Button(footer, text="Discard and Return", command=lambda: self.controller.show_frame("MainMenuFrame"), style='Map.TButton').pack(side=tk.LEFT, padx=10)
@@ -126,10 +139,14 @@ class ControllerRemapperFrame(ttk.Frame):
     def _add_button(self, parent, friendly_name, row, col, padx=5, pady=5):
         btn_frame = ttk.Frame(parent, style='TFrame'); btn_frame.grid(row=row, column=col, padx=padx, pady=pady, sticky='nsew')
         ttk.Label(btn_frame, text=friendly_name.split('(')[0].strip(), style='TLabel').pack(pady=(0, 2))
-        label = ttk.Label(btn_frame, text="KEY_?", cursor="hand2", style='TLabel', relief='raised', borderwidth=2)
+        # ### CORREÇÃO: Usar o novo estilo base para Labels do Remapper ###
+        label = ttk.Label(btn_frame, text="KEY_?", cursor="hand2", style='Remapper.TLabel', relief='raised', borderwidth=2)
         label.pack(ipady=5, ipadx=5)
         label.bind("<Button-1>", lambda e, name=friendly_name: self.select_button(name))
         self.button_labels[friendly_name] = label
+        
+        # ### NOVO: Adiciona o Label clicável à lista de navegação ###
+        self.navigable_widgets.append(label)
         
     def _add_stick_group(self, parent, stick_name, click_name, row, col):
         group_frame = ttk.Frame(parent, style='TFrame'); group_frame.grid(row=row, column=col, rowspan=3, padx=10, pady=10)
@@ -141,21 +158,18 @@ class ControllerRemapperFrame(ttk.Frame):
 
     def select_button(self, friendly_name):
         if self.selected_key_friendly in self.button_labels:
-            self.button_labels[self.selected_key_friendly].configure(style='TLabel')
+            # ### CORRIGIDO: Restaura para o estilo base do Remapper ###
+            self.button_labels[self.selected_key_friendly].configure(style='Remapper.TLabel')
         self.selected_key_friendly = friendly_name
-        self.button_labels[friendly_name].configure(style='Selected.TLabel')
+        # ### CORRIGIDO: Usa o novo estilo de foco/seleção unificado ###
+        self.button_labels[friendly_name].configure(style='Focus.TLabel')
         self.open_keyboard_picker(friendly_name)
 
     def open_keyboard_picker(self, friendly_name):
-        # ### CHANGE: Pass self instead of self.root as the parent for the modal
-        picker = KeyboardPicker(self, friendly_name)
-        new_key_code = picker.result
-        if new_key_code:
-            map_key = MAPPING_KEYS[friendly_name]
-            if self.mapper_utility.update_mapping(map_key, new_key_code):
-                self.update_labels()
+        # ... (código existente)
         if self.selected_key_friendly in self.button_labels:
-            self.button_labels[self.selected_key_friendly].configure(style='TLabel')
+            # ### CORRIGIDO: Restaura para o estilo base do Remapper ###
+            self.button_labels[self.selected_key_friendly].configure(style='Remapper.TLabel')
             self.selected_key_friendly = None
 
     def update_labels(self):
