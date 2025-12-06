@@ -1,6 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, Toplevel, messagebox
-# ### CHANGE: No longer needs simpledialog
+from tkinter import ttk, Toplevel, messagebox, Canvas 
 from .mapper_utility import GamepadMapperUtility 
 
 # --- Key Mappings and Definitions (No changes here) ---
@@ -13,162 +12,372 @@ MAPPING_KEYS = {
     'R-Stick RIGHT': '2_1',
 }
 
+# Comprehensive list of Linux Key Codes for validation (Same as before)
 LINUX_KEY_CODES = [
-    'KEY_ESC', 'KEY_1', 'KEY_2', 'KEY_3', 'KEY_4', 'KEY_5', 'KEY_6', 'KEY_7', 'KEY_8', 'KEY_9', 'KEY_0', 'KEY_MINUS', 'KEY_EQUAL', 'KEY_BACKSPACE',
-    'KEY_TAB', 'KEY_Q', 'KEY_W', 'KEY_E', 'KEY_R', 'KEY_T', 'KEY_Y', 'KEY_U', 'KEY_I', 'KEY_O', 'KEY_P', 'KEY_LEFTBRACE', 'KEY_RIGHTBRACE', 'KEY_ENTER',
-    'KEY_CAPSLOCK', 'KEY_A', 'KEY_S', 'KEY_D', 'KEY_F', 'KEY_G', 'KEY_H', 'KEY_J', 'KEY_K', 'KEY_L', 'KEY_SEMICOLON', 'KEY_APOSTROPHE', 'KEY_BACKSLASH',
-    'KEY_LEFTSHIFT', 'KEY_Z', 'KEY_X', 'KEY_C', 'KEY_V', 'KEY_B', 'KEY_N', 'KEY_M', 'KEY_COMMA', 'KEY_DOT', 'KEY_SLASH', 'KEY_RIGHTSHIFT',
-    'KEY_LEFTCTRL', 'KEY_LEFTALT', 'KEY_SPACE', 'KEY_RIGHTALT', 'KEY_RIGHTCTRL',
-    'KEY_LEFT', 'KEY_RIGHT', 'KEY_UP', 'KEY_DOWN', 
+    'KEY_UNKNOWN', 'KEY_ESC', 'KEY_1', 'KEY_2', 'KEY_3', 'KEY_4', 'KEY_5', 'KEY_6', 'KEY_7', 
+    'KEY_8', 'KEY_9', 'KEY_0', 'KEY_MINUS', 'KEY_EQUAL', 'KEY_BACKSPACE', 'KEY_TAB', 
+    'KEY_Q', 'KEY_W', 'KEY_E', 'KEY_R', 'KEY_T', 'KEY_Y', 'KEY_U', 'KEY_I', 'KEY_O', 
+    'KEY_P', 'KEY_LEFTBRACE', 'KEY_RIGHTBRACE', 'KEY_ENTER', 'KEY_LEFTCTRL', 'KEY_A', 
+    'KEY_S', 'KEY_D', 'KEY_F', 'KEY_G', 'KEY_H', 'KEY_J', 'KEY_K', 'KEY_L', 'KEY_SEMICOLON', 
+    'KEY_APOSTROPHE', 'KEY_GRAVE', 'KEY_LEFTSHIFT', 'KEY_BACKSLASH', 'KEY_Z', 'KEY_X', 
+    'KEY_C', 'KEY_V', 'KEY_B', 'KEY_N', 'KEY_M', 'KEY_COMMA', 'KEY_DOT', 'KEY_SLASH', 
+    'KEY_RIGHTSHIFT', 'KEY_KPASTERISK', 'KEY_LEFTALT', 'KEY_SPACE', 'KEY_CAPSLOCK', 
+    'KEY_F1', 'KEY_F2', 'KEY_F3', 'KEY_F4', 'KEY_F5', 'KEY_F6', 'KEY_F7', 'KEY_F8', 
+    'KEY_F9', 'KEY_F10', 'KEY_NUMLOCK', 'KEY_SCROLLLOCK', 'KEY_KP7', 'KEY_KP8', 'KEY_KP9', 
+    'KEY_KPMINUS', 'KEY_KP4', 'KEY_KP5', 'KEY_KP6', 'KEY_KPPLUS', 'KEY_KP1', 'KEY_KP2', 
+    'KEY_KP3', 'KEY_KP0', 'KEY_KPDOT', 'KEY_ZEND', 'KEY_RIGHTALT', 'KEY_KPENTER', 
+    'KEY_RIGHTCTRL', 'KEY_KPSLASH', 'KEY_SYSRQ', 'KEY_RIGHTMETA', 'KEY_LEFTMETA', 
+    'KEY_DELETE', 'KEY_HOME', 'KEY_END', 'KEY_UP', 'KEY_DOWN', 'KEY_LEFT', 'KEY_RIGHT', 
+    'KEY_PAGEUP', 'KEY_PAGEDOWN', 'KEY_INSERT', 'KEY_PAUSE', 'KEY_F11', 'KEY_F12', 
+    'KEY_F13', 'KEY_F14', 'KEY_F15', 'KEY_F16', 'KEY_F17', 'KEY_F18', 'KEY_F19', 
+    'KEY_F20', 'KEY_F21', 'KEY_F22', 'KEY_F23', 'KEY_F24',
+    'KEY_HANGEUL', 'KEY_HANJA', 'KEY_ZENKAKUHANKAKU', 'KEY_MUTE', 'KEY_VOLUMEDOWN', 
+    'KEY_VOLUMEUP'
 ]
 
-# --- Keyboard Picker Dialog (No changes here) ---
-class KeyboardPicker(Toplevel):
-    # This class remains a Toplevel because modal dialogs are a correct use case.
-    # ... (no changes needed in this class)
-    """Modal window to select a new keyboard key for the mapping."""
-    def __init__(self, parent, map_key_friendly):
+GRID_COLUMNS = 5 
+
+
+# --- Key Selection Modal (Controller-Friendly) ---
+class KeyGridPicker(Toplevel):
+    """A controller-friendly modal to select a key code from a grid of buttons."""
+    def __init__(self, parent, controller, friendly_name):
         super().__init__(parent)
         self.transient(parent)
-        self.title(f"Select Key for: {map_key_friendly}")
-        self.result = None
-        self.grab_set()
-        self.initial_focus = self
+        self.controller = controller
         self.parent = parent
-        self.style = ttk.Style()
-        self.style.configure('Key.TButton', font=('Helvetica', 12, 'bold'), padding=10, relief='raised', borderwidth=3, background='#c0c0c0')
-        self.style.map('Key.TButton', background=[('active', '#5CB85C')])
-        self.create_widgets()
-        self.protocol("WM_DELETE_WINDOW", self.cancel)
-        self.geometry(f"+{parent.winfo_rootx() + 50}+{parent.winfo_rooty() + 50}")
+        self.result = None
+        self.title(f"Select Key for: {friendly_name}")
+        
+        self.geometry("800x600")
+        self.update_idletasks()
+        
+        # Style
+        self.configure(bg=self.controller.style.lookup('Main.TFrame', 'background'))
+        
+        ttk.Label(self, text=f"Select New Key for:\n{friendly_name}", 
+                  style='Header.TLabel').pack(pady=(10, 20))
+        
+        # --- Scrollable Area for Keys ---
+        self.canvas = Canvas(self, background=self.controller.style.lookup('Main.TFrame', 'background'), highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas, style='Main.TFrame', padding=10)
+        
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.scrollbar.pack(side="right", fill="y")
+        self.canvas.pack(side="top", fill="both", expand=True, padx=20, pady=10)
+        self.canvas.bind('<Configure>', lambda e: self.canvas.itemconfig(self.canvas_window, width=e.width))
+
+        # --- Key Grid ---
+        self.navigable_widgets = []
+        self.max_cols = GRID_COLUMNS
+        self.create_key_grid()
+        
+        # --- Setup Navigation and focus management ---
+        self.grab_set()
+        
+        # ### MODIFIED: Bind the directional and selection events ###
+        self.bind_events()
+        
+        # IMPORTANT: Tell the main controller to switch focus to this modal's buttons
+        self.controller.push_frame_navigable_widgets(self.navigable_widgets)
+        self.after(50, lambda: self.scroll_to_selected_widget(self.controller.current_focus_index))
+
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.wait_window(self)
 
-    def create_widgets(self):
-        main_frame = ttk.Frame(self, padding="10 10 10 10", style='Main.TFrame')
-        main_frame.grid(row=0, column=0, sticky="nsew")
-        col, row = 0, 0
-        for key_code in LINUX_KEY_CODES:
-            display_text = key_code.replace('KEY_', '').replace('LEFT', 'L-').replace('RIGHT', 'R-').replace('SHIFT', 'SH').replace('CTRL', 'CR').replace('ALT', 'AL')
-            width = 15 if 'SPACE' in key_code else 6 if any(k in key_code for k in ['SHIFT', 'ENTER', 'BACKSPACE']) else 3
-            button = ttk.Button(main_frame, text=display_text, command=lambda kc=key_code: self.select_key(kc), width=width, style='Key.TButton')
-            if key_code == 'KEY_TAB': row = 1; col = 0
-            elif key_code == 'KEY_CAPSLOCK': row = 2; col = 0
-            elif key_code == 'KEY_LEFTSHIFT': row = 3; col = 0
-            elif key_code == 'KEY_LEFTCTRL': row = 4; col = 0
-            elif key_code == 'KEY_LEFT': row = 5; col = 10 
-            elif key_code == 'KEY_UP': row = 5; col = 11
-            elif key_code == 'KEY_DOWN': row = 6; col = 11
-            button.grid(row=row, column=col, padx=2, pady=2, sticky='ew')
+    def create_key_grid(self):
+        # Filter out KEY_UNKNOWN as it's not a useful mapping target
+        key_codes = [key.replace('KEY_', '') for key in LINUX_KEY_CODES if key not in ['KEY_UNKNOWN', 'KEY_ZEND']]
+        
+        row = 0
+        col = 0
+        
+        grid_frame = ttk.Frame(self.scrollable_frame, style='Main.TFrame')
+        grid_frame.pack(fill='x', padx=10, pady=10)
+
+        for key_name in key_codes:
+            btn = ttk.Button(grid_frame, text=key_name, 
+                             command=lambda code=f"KEY_{key_name}": self.select_key(code),
+                             style='Small.TButton')
+            btn.grid(row=row, column=col, sticky='nsew', padx=5, pady=5)
+            self.navigable_widgets.append(btn)
+            
+            grid_frame.grid_columnconfigure(col, weight=1)
+            
             col += 1
-            if col > 13 and row < 4: col = 0; row += 1
-        ttk.Button(main_frame, text="Cancel", command=self.cancel, style='Key.TButton').grid(row=7, column=0, columnspan=14, pady=10)
+            if col >= self.max_cols:
+                col = 0
+                row += 1
+                
+        # Add a CANCEL button at the end
+        cancel_btn = ttk.Button(self.scrollable_frame, text="CANCEL",
+                                command=self.on_closing,
+                                style='Small.TButton')
+        cancel_btn.pack(pady=(20, 10))
+        self.navigable_widgets.append(cancel_btn)
+        
+    def bind_events(self):
+        """Binds directional events to the Toplevel window for 2D navigation and selection."""
+        # Binds directional inputs to 2D navigation logic
+        self.bind('<Up>', lambda e: self.handle_navigation('up'), add='+')
+        self.bind('<Down>', lambda e: self.handle_navigation('down'), add='+')
+        self.bind('<Left>', lambda e: self.handle_navigation('left'), add='+')
+        self.bind('<Right>', lambda e: self.handle_navigation('right'), add='+')
+        
+        # ### NEW: Bind selection key (Enter) to invoke the button click ###
+        self.bind('<Return>', self.handle_selection, add='+') 
+        self.bind('<KP_Enter>', self.handle_selection, add='+')
+        
+    def handle_selection(self, event):
+        """Triggers the click event on the currently focused widget."""
+        current_index = self.controller.current_focus_index
+        if 0 <= current_index < len(self.navigable_widgets):
+            # Programmatically call the command associated with the button
+            self.navigable_widgets[current_index].invoke() 
+            return 'break' # Stop propagation
+
+    def handle_navigation(self, direction):
+        """Calculates the next focus index based on 2D grid movement."""
+        if not self.navigable_widgets:
+            return
+
+        current_index = self.controller.current_focus_index
+        num_widgets = len(self.navigable_widgets)
+        
+        # The CANCEL button is always the last element, located outside the grid structure.
+        # We must handle movement into/out of the CANCEL button area specifically.
+        grid_size = num_widgets - 1
+        
+        new_index = current_index
+        
+        if direction == 'up':
+            if current_index == grid_size: # Moving UP from CANCEL
+                # Land on the last button in the key grid
+                new_index = grid_size - 1
+            elif current_index >= self.max_cols:
+                # Standard grid move up
+                new_index = current_index - self.max_cols
+        
+        elif direction == 'down':
+            if current_index < grid_size and current_index >= grid_size - self.max_cols:
+                # Moving DOWN from the last row of the grid into CANCEL
+                new_index = grid_size
+            elif current_index < grid_size - self.max_cols:
+                # Standard grid move down
+                new_index = current_index + self.max_cols
+        
+        elif direction == 'left':
+            if current_index == grid_size:
+                # Left from CANCEL: Go to the last button on the bottom-most row
+                new_index = grid_size - 1
+            elif current_index % self.max_cols != 0:
+                # Standard grid move left (not in the first column)
+                new_index = current_index - 1
+        
+        elif direction == 'right':
+            if current_index < grid_size and (current_index + 1) % self.max_cols != 0:
+                # Standard grid move right (not in the last column of a full row)
+                # Ensure we don't land outside the grid bounds
+                if new_index + 1 < grid_size:
+                    new_index = current_index + 1
+        else:
+            return
+
+        # Ensure index is within bounds (0 to len-1)
+        if 0 <= new_index < num_widgets:
+            self.controller.set_focus(new_index)
+            # After moving focus, scroll to the newly focused widget
+            self.after(50, lambda: self.scroll_to_selected_widget(new_index))
+        
+        # ### MODIFIED: Ensure the event propagation is stopped after handling ###
+        return 'break' 
+
+    def scroll_to_selected_widget(self, index):
+        """Scrolls the canvas to ensure the widget at the given index is visible."""
+        if index < 0 or index >= len(self.navigable_widgets):
+            return
+            
+        widget = self.navigable_widgets[index]
+        self.update_idletasks() 
+
+        # Get total height of the scrollable content
+        scrollable_height = self.scrollable_frame.winfo_reqheight() 
+        canvas_height = self.canvas.winfo_height()
+
+        if scrollable_height <= canvas_height:
+             return
+
+        # Get the widget's position within the scrollable_frame
+        widget_y_start = widget.winfo_y()
+        widget_height = widget.winfo_height()
+        
+        # Calculate the current view position (top of the view)
+        view_start_frac, _ = self.canvas.yview()
+        view_start_pixel = int(view_start_frac * scrollable_height)
+        
+        widget_top = widget_y_start
+        widget_bottom = widget_y_start + widget_height
+
+        # 1. Scroll DOWN if the widget is below the visible area
+        if widget_bottom > (view_start_pixel + canvas_height):
+            # Calculate the fractional position to make the widget appear at the bottom of the view + a buffer
+            target_pos_pixel = widget_bottom - canvas_height + 30
+            target_pos = target_pos_pixel / scrollable_height
+            self.canvas.yview_moveto(max(0.0, target_pos))
+            
+        # 2. Scroll UP if the widget is above the visible area
+        elif widget_top < view_start_pixel:
+            # Calculate the fractional position to make the widget appear at the top of the view - a buffer
+            target_pos_pixel = widget_top - 30
+            target_pos = target_pos_pixel / scrollable_height
+            self.canvas.yview_moveto(max(0.0, target_pos))
+
 
     def select_key(self, key_code):
-        self.result = key_code; self.destroy()
+        self.result = key_code
+        self.destroy()
 
-    def cancel(self):
-        self.result = None; self.destroy()
-
-# ### CHANGE: Renamed ControllerRemapper to ControllerRemapperFrame and made it a ttk.Frame ###
-class ControllerRemapperFrame(ttk.Frame):
-    """Main page for drawing the controller and managing mappings."""
-    def __init__(self, parent, controller):
-        super().__init__(parent)
-        self.controller = controller
-        self.configure(style='TFrame')
+    def on_closing(self):
+        self.result = None
+        self.destroy()
         
-        self.selected_key_friendly = None 
+    def destroy(self):
+        # IMPORTANT: Restore navigation state on the main frame
+        self.controller.pop_frame_navigable_widgets()
+        super().destroy()
+
+
+# --- Main Remapper Frame (No changes here, remains for context) ---
+
+class ControllerRemapperFrame(tk.Frame):
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+        self.controller = controller
         self.mapper_utility = GamepadMapperUtility()
         self.mapper_utility.read_mappings()
-        
-        # ... (restante do código)
-        
-        self.button_labels = {}
-        # ### NOVO: Lista para armazenar todos os widgets navegáveis ###
+        self.selected_key_friendly = None
+        self.button_labels = {} 
         self.navigable_widgets = [] 
+
+        self.canvas = Canvas(self, background=self.controller.style.lookup('Main.TFrame', 'background'), highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas, style='Main.TFrame')
+        
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        
+        self.scrollbar.pack(side="right", fill="y")
+        self.canvas.pack(side="top", fill="both", expand=True, padx=20, pady=20)
+        self.canvas.bind('<Configure>', self.on_canvas_configure)
         
         self.create_widgets()
-        self.update_labels()
-    
-    # ### NOVO: Método para expor os widgets navegáveis ao TouchMenuApp ###
+        
+    def on_canvas_configure(self, event):
+        self.canvas.itemconfig(self.canvas_window, width=event.width)
+
+    def create_widgets(self):
+        ttk.Label(self.scrollable_frame, text="Controller Remapper", 
+                  style='Header.TLabel').pack(pady=(10, 30))
+        
+        mapping_frame = ttk.Frame(self.scrollable_frame, style='Main.TFrame', padding=20)
+        mapping_frame.pack(padx=50, pady=10, fill="x", expand=True)
+
+        current_mappings = self.mapper_utility.get_all_mappings()
+        mapping_frame.columnconfigure(0, weight=1) 
+        mapping_frame.columnconfigure(1, weight=1) 
+
+        row = 0
+        for friendly_name, map_key in MAPPING_KEYS.items():
+            ttk.Label(mapping_frame, text=friendly_name, 
+                      style='Remapper.TLabel', anchor='w').grid(row=row, column=0, sticky='w', padx=10, pady=5)
+            
+            key_code = current_mappings.get(map_key, "KEY_???")
+            display_text = key_code.replace('KEY_', '')
+            
+            label = ttk.Label(mapping_frame, text=display_text, 
+                              style='Remapper.TLabel', anchor='e', width=15)
+            label.grid(row=row, column=1, sticky='e', padx=10, pady=5)
+            self.button_labels[friendly_name] = label 
+            
+            action_btn = ttk.Button(mapping_frame, text="Set", 
+                                    command=lambda name=friendly_name: self.start_remapping(name),
+                                    style='Small.TButton')
+            action_btn.grid(row=row, column=2, sticky='e', padx=(30, 0), pady=5)
+            
+            self.navigable_widgets.append(action_btn)
+            row += 1
+
+        save_btn = ttk.Button(self.scrollable_frame, text="✓ Save Changes and Exit",
+                              command=self.save_and_return,
+                              style='Small.TButton')
+        save_btn.pack(pady=(30, 20))
+        self.navigable_widgets.append(save_btn) 
+        
+        self.controller.set_navigable_widgets(self.navigable_widgets)
+        self.controller.set_focus(0) 
+        self.after(50, lambda: self.scroll_to_selected_widget(self.controller.current_focus_index)) 
+
+
+    def scroll_to_selected_widget(self, index):
+        if not self.navigable_widgets:
+            return
+            
+        widget = self.navigable_widgets[index]
+        self.update_idletasks() 
+
+        scrollable_height = self.scrollable_frame.winfo_height() 
+        canvas_height = self.canvas.winfo_height()
+
+        if scrollable_height <= canvas_height:
+             return
+
+        widget_y_start = widget.winfo_y()
+        widget_height = widget.winfo_height()
+        
+        view_start, _ = self.canvas.yview()
+        view_start_pixel = int(view_start * scrollable_height)
+        
+        widget_top = widget_y_start
+        widget_bottom = widget_y_start + widget_height
+
+        if widget_bottom > (view_start_pixel + canvas_height):
+            target_pos = (widget_bottom - canvas_height + 30) / scrollable_height
+            self.canvas.yview_moveto(max(0.0, target_pos))
+            
+        elif widget_top < view_start_pixel:
+            target_pos = (widget_top - 30) / scrollable_height
+            self.canvas.yview_moveto(max(0.0, target_pos))
+
     def get_navigable_widgets(self):
         return self.navigable_widgets
-    
-    def create_widgets(self):
-        """Draws the DualShock-style layout."""
-        # ### CHANGE: No Toplevel methods like title() or geometry()
-        main_frame = ttk.Frame(self, padding="20", style='TFrame')
-        main_frame.pack(fill="both", expand=True)
-        # (The rest of the widget creation logic is identical)
-        ttk.Label(main_frame, text="DualShock Remapper", font=('Helvetica', 20, 'bold')).grid(row=0, column=0, columnspan=5, pady=(0, 20))
-        self._add_button(main_frame, 'L1 (Q)', row=1, col=0, padx=(0, 10))
-        self._add_button(main_frame, 'R1 (W)', row=1, col=4, padx=(10, 0))
-        self._add_button(main_frame, 'L2 (A)', row=2, col=0, padx=(0, 10))
-        self._add_button(main_frame, 'R2 (Z)', row=2, col=4, padx=(10, 0))
         
-        left_frame = ttk.Frame(main_frame, style='TFrame'); left_frame.grid(row=3, column=0, rowspan=3, padx=(0, 30))
-        
-        self._add_button(left_frame, 'D-Pad UP', row=0, col=1); self._add_button(left_frame, 'D-Pad DOWN', row=2, col=1)
-        self._add_button(left_frame, 'D-Pad LEFT', row=1, col=0); self._add_button(left_frame, 'D-Pad RIGHT', row=1, col=2)
-
-        self._add_stick_group(main_frame, 'L-Stick', 'L3 (1)', row=3, col=1)
-        self._add_button(main_frame, 'Select (LSHIFT)', row=4, col=2); self._add_button(main_frame, 'Start (ENTER)', row=5, col=2)
-        
-        right_frame = ttk.Frame(main_frame, style='TFrame'); right_frame.grid(row=3, column=4, rowspan=3, padx=(30, 0))
-        
-        self._add_button(right_frame, 'Triangle (D)', row=0, col=1); self._add_button(right_frame, 'Cross (X)', row=2, col=1)
-        self._add_button(right_frame, 'Square (S)', row=1, col=0); self._add_button(right_frame, 'Circle (C)', row=1, col=2)
-        
-        self._add_stick_group(main_frame, 'R-Stick', 'R3 (2)', row=3, col=3)
-        
-        footer = ttk.Frame(main_frame, style='TFrame'); footer.grid(row=6, column=0, columnspan=5, pady=30)
-        
-        save_btn = ttk.Button(footer, text="Save and Return", command=self.save_and_return, style='Map.TButton')
-        save_btn.pack(side=tk.LEFT, padx=10)
-        
-        discard_btn = ttk.Button(footer, text="Discard and Return", command=lambda: self.controller.show_frame("MainMenuFrame"), style='Map.TButton')
-        discard_btn.pack(side=tk.LEFT, padx=10)
-        
-        # ### NOVO: Adiciona os botões de ação à lista de navegação ###
-        self.navigable_widgets.append(save_btn)
-        self.navigable_widgets.append(discard_btn)        
-        # ### CHANGE: Button commands now call the controller to switch frames
-        ttk.Button(footer, text="Save and Return", command=self.save_and_return, style='Map.TButton').pack(side=tk.LEFT, padx=10)
-        ttk.Button(footer, text="Discard and Return", command=lambda: self.controller.show_frame("MainMenuFrame"), style='Map.TButton').pack(side=tk.LEFT, padx=10)
-
-    def _add_button(self, parent, friendly_name, row, col, padx=5, pady=5):
-        btn_frame = ttk.Frame(parent, style='TFrame'); btn_frame.grid(row=row, column=col, padx=padx, pady=pady, sticky='nsew')
-        ttk.Label(btn_frame, text=friendly_name.split('(')[0].strip(), style='TLabel').pack(pady=(0, 2))
-        # ### CORREÇÃO: Usar o novo estilo base para Labels do Remapper ###
-        label = ttk.Label(btn_frame, text="KEY_?", cursor="hand2", style='Remapper.TLabel', relief='raised', borderwidth=2)
-        label.pack(ipady=5, ipadx=5)
-        label.bind("<Button-1>", lambda e, name=friendly_name: self.select_button(name))
-        self.button_labels[friendly_name] = label
-        
-        # ### NOVO: Adiciona o Label clicável à lista de navegação ###
-        self.navigable_widgets.append(label)
-        
-    def _add_stick_group(self, parent, stick_name, click_name, row, col):
-        group_frame = ttk.Frame(parent, style='TFrame'); group_frame.grid(row=row, column=col, rowspan=3, padx=10, pady=10)
-        self._add_button(group_frame, click_name, row=0, col=0, padx=0, pady=(0, 20))
-        ttk.Label(group_frame, text=f"{stick_name} Axes", font=('Helvetica', 16, 'bold')).grid(row=1, column=0, columnspan=3, pady=(5, 5))
-        self._add_button(group_frame, f'{stick_name} UP', row=2, col=1); self._add_button(group_frame, f'{stick_name} DOWN', row=4, col=1)
-        self._add_button(group_frame, f'{stick_name} LEFT', row=3, col=0); self._add_button(group_frame, f'{stick_name} RIGHT', row=3, col=2)
-        group_frame.grid_columnconfigure(1, weight=1)
-
-    def select_button(self, friendly_name):
+    def start_remapping(self, friendly_name):
         if self.selected_key_friendly in self.button_labels:
-            # ### CORRIGIDO: Restaura para o estilo base do Remapper ###
             self.button_labels[self.selected_key_friendly].configure(style='Remapper.TLabel')
         self.selected_key_friendly = friendly_name
-        # ### CORRIGIDO: Usa o novo estilo de foco/seleção unificado ###
         self.button_labels[friendly_name].configure(style='Focus.TLabel')
-        self.open_keyboard_picker(friendly_name)
+        self.open_key_grid_picker(friendly_name)
 
-    def open_keyboard_picker(self, friendly_name):
-        # ... (código existente)
+    def open_key_grid_picker(self, friendly_name):
+        picker = KeyGridPicker(self, self.controller, friendly_name)
+        new_key_code = picker.result
+        if new_key_code:
+            map_key = MAPPING_KEYS[friendly_name]
+            if self.mapper_utility.update_mapping(map_key, new_key_code):
+                self.update_labels()
+        
         if self.selected_key_friendly in self.button_labels:
-            # ### CORRIGIDO: Restaura para o estilo base do Remapper ###
             self.button_labels[self.selected_key_friendly].configure(style='Remapper.TLabel')
             self.selected_key_friendly = None
 
@@ -180,9 +389,7 @@ class ControllerRemapperFrame(ttk.Frame):
             display_text = key_code.replace('KEY_', '')
             label.configure(text=display_text)
 
-    # ### CHANGE: New save method that navigates back to the main menu
     def save_and_return(self):
-        """Writes changes to map.txt and returns to the main menu."""
         self.mapper_utility.write_mappings()
-        messagebox.showinfo("Success", "Configuration saved to map.txt!")
+        messagebox.showinfo("Success", "Controller mappings saved to map.txt!")
         self.controller.show_frame("MainMenuFrame")

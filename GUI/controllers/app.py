@@ -5,6 +5,7 @@ import os
 import subprocess
 import json
 import pygame
+import time
 from PIL import Image, ImageTk
 
 os.path.dirname(os.path.abspath(__file__))
@@ -23,8 +24,19 @@ class TouchMenuApp:
         self.style = ttk.Style()
         self.style.theme_use('clam')
         self.style.configure('Main.TFrame', bg= "dark green")
+        # Define a base style for the button to make sure it looks good
         self.style.configure('Small.TButton', font=self.big_font, padding=30, relief='flat', foreground='white')
         self.style.map('Small.TButton', background=[('active', '#2980b9'), ('pressed', '#1c638e')])
+        
+        # --- Styles for Navigation Focus (NEW/MODIFIED) ---
+        # The base style for labels in the remapper
+        self.style.configure('Remapper.TLabel', font=('Helvetica', 16), background='lightgrey', foreground='black', padding=5)
+        # Style for the currently focused/selected item (used for D-Pad navigation)
+        self.style.configure('Focus.TButton', background='#2980b9', foreground='white', font=self.big_font, padding=30, relief='solid', borderwidth=3, bordercolor='white')
+        self.style.configure('Focus.TLabel', background='#2980b9', foreground='white', font=('Helvetica', 16), padding=5, relief='solid', borderwidth=3, bordercolor='white')
+        # Map Focus style back to the base style when not active
+        self.style.map('Small.TButton', background=[('active', '#2980b9'), ('pressed', '#1c638e'), ('focus', '#3498db')])
+        # --- END Styles ---
         
         self.joystick = None
         self.held_shoulder_buttons = set()
@@ -38,225 +50,221 @@ class TouchMenuApp:
         self.NAV_DEBOUNCE_MS = 180 # Cooldown between navigation inputs (in milliseconds)
         # ### NEW: END ###
 
-        self.load_console_images()
-
-        
-    def load_console_images(self): 
-        self.console_images = {}  
-
-        ICON_SIZE = (280, 90)
-
-        image_paths = {"Super Nintendo": f"{os.path.dirname(os.path.abspath(__file__))}/../assets/supernintendo.png",
-        "Mega Drive": f"{os.path.dirname(os.path.abspath(__file__))}/../assets/MegaDrive.png",
-        "Game Boy": f"{os.path.dirname(os.path.abspath(__file__))}/../assets/gameboy.png",
-        "Game Boy Advance": f"{os.path.dirname(os.path.abspath(__file__))}/../assets/gameboy_advance.png",
-        "Playstation 1": f"{os.path.dirname(os.path.abspath(__file__))}/../assets/playstation.png",
-        }
-        for console, path in image_paths.items():
-            if isinstance(path, str) and os.path.exists(path):
-                img = Image.open(path).resize(ICON_SIZE, Image.LANCZOS)
-                self.console_images[console] = ImageTk.PhotoImage(img)
-            else:
-                print(f"Erro: caminho inválido ou tipo incorreto para {console}: {path}")
-
-
         self.games_data = {}
         self.load_games_data("games.json")
         
         self.setup_styles()
         
         container = ttk.Frame(self.root, style='Main.TFrame')
-        container.pack(fill="both", expand=True)
-        container.grid_rowconfigure(0, weight=1)
-        container.grid_columnconfigure(0, weight=1)
+        container.pack(side="top", fill="both", expand=True)
 
         self.frames = {}
-        for F in (MainMenuFrame, GameListFrame, ControllerRemapperFrame):
+        # ### FIX: Initialize current_frame before frame instantiation starts ###
+        self.current_frame = None 
+        # ### NEW FIX: Initialize current_frame_name to prevent AttributeError in navigation logic ###
+        self.current_frame_name = None 
+        
+        self.navigation_stack = []
+
+        # We need to import frames here to avoid circular dependency
+        from .frames import MainMenuFrame, GamesListFrame, SettingsFrame
+        
+        # Initialize all frames
+        for F in (MainMenuFrame, GamesListFrame, SettingsFrame, ControllerRemapperFrame): # Added ControllerRemapperFrame
             page_name = F.__name__
             frame = F(parent=container, controller=self)
             self.frames[page_name] = frame
+            # The frame is placed on top of the container, but only the current one is visible
             frame.grid(row=0, column=0, sticky="nsew")
 
+        # The initial frame to show
         self.show_frame("MainMenuFrame")
-        self._initialize_gamepad_listener()
-
-    # ### NEW: Method to register which buttons can be navigated on the current screen ###
-    def register_navigable_widgets(self, widgets: list):
-        """Sets the list of widgets for controller navigation on the current frame."""
-        self.navigable_widgets = widgets
-        # If there are any navigable widgets, set focus to the first one
-        if self.navigable_widgets:
-            self._update_focus(old_index=-1, new_index=0)
-        else:
-            self.current_focus_index = -1
-    # ### NEW: END ###
-            
-    def show_frame(self, page_name, console_name=None):
-        """Raises the requested frame to the top and prepares it for navigation."""
-        frame = self.frames[page_name]
-        if page_name == "GameListFrame" and console_name:
-            frame.set_console(console_name)
-            frame.generate_game_list()
         
-        frame.tkraise()
-        # ### NEW: After showing a frame, register its buttons for navigation ###
-        # We call a method on the frame itself to get its buttons.
-        if hasattr(frame, 'get_navigable_widgets'):
-            self.register_navigable_widgets(frame.get_navigable_widgets())
-        else:
-            self.register_navigable_widgets([]) # Clear navigation for this frame
-    # ### NEW: END ###
+        # Start Pygame and the polling loop
+        self.start_pygame()
+        self.root.after(100, self.poll_joystick_events)
+        
+    # --- Navigation Methods (NEW/MODIFIED) ---
 
-    def _initialize_gamepad_listener(self):
-        pygame.init()
-        pygame.joystick.init()
-        if pygame.joystick.get_count() > 0:
-            self.joystick = pygame.joystick.Joystick(0)
-            self.joystick.init()
-            print(f"✅ Gamepad '{self.joystick.get_name()}' connected.")
-            self._poll_gamepad_events()
-        else:
-            print("⚠️ No gamepad connected.")
+    def set_navigable_widgets(self, widgets):
+        """
+        Sets the list of widgets that can be navigated by the controller (D-Pad).
+        This method was missing, causing the AttributeError.
+        """
+        self.navigable_widgets = widgets
+        self.current_focus_index = -1 # Reset focus whenever the list changes
+        # Ensure the first element gets focus if the list is not empty
+        if self.navigable_widgets:
+            self.move_focus(1) # Move down once to select the first item
 
-    def _poll_gamepad_events(self):
-        """Checks for pygame events for both shortcuts and menu navigation."""
-        current_time = pygame.time.get_ticks()
+    def push_frame_navigable_widgets(self, widgets):
+        """Temporarily saves current navigation state and sets a new list (for modals)."""
+        # Save the current state (widgets list, focus index)
+        self.navigation_stack.append({
+            'widgets': self.navigable_widgets,
+            'index': self.current_focus_index
+        })
+        
+        self.navigable_widgets = widgets
+        self.set_focus(0) # Start focus on the first item in the modal
 
-        for event in pygame.event.get():
-            # --- Return-to-home shortcut logic (unchanged) ---
-            if event.type == pygame.JOYBUTTONDOWN:
-                if event.button in self.SHOULDER_BUTTONS:
-                    self.held_shoulder_buttons.add(event.button)
-                if event.button in self.STICK_BUTTONS and self.SHOULDER_BUTTONS.issubset(self.held_shoulder_buttons):
-                    self.show_frame("MainMenuFrame")
-                
-                # ### NEW: Handle "Select" button press (X button is usually button 0) ###
-                if event.button == 0 and self.current_focus_index != -1:
-                    focused_widget = self.navigable_widgets[self.current_focus_index]
-                    print(f"Controller selected: {focused_widget.cget('text')}")
-                    focused_widget.invoke() # Programmatically "click" the button
-                # ### NEW: END ###
-
-            elif event.type == pygame.JOYBUTTONUP:
-                if event.button in self.SHOULDER_BUTTONS:
-                    self.held_shoulder_buttons.discard(event.button)
+    def pop_frame_navigable_widgets(self):
+        """Restores the previous navigation state from the stack (after modal closes)."""
+        if self.navigation_stack:
+            previous_state = self.navigation_stack.pop()
             
-            # ### NEW: Handle D-Pad navigation ###
-            elif event.type == pygame.JOYHATMOTION:
-                # event.value is a tuple (x, y); e.g., (0, 1) is UP, (0, -1) is DOWN
-                hat_x, hat_y = event.value
-                # Debounce to prevent rapid scrolling
-                if current_time - self.last_nav_time > self.NAV_DEBOUNCE_MS:
-                    if hat_y == 1 or hat_x == -1: # D-Pad UP
-                        self._navigate_menu(-1)
-                        self.last_nav_time = current_time
-                    elif hat_y == -1 or hat_x == 1: # D-Pad DOWN
-                        self._navigate_menu(1)
-                        self.last_nav_time = current_time
-            # ### NEW: END ###
+            self.navigable_widgets = previous_state['widgets']
+            
+            # Restore the focus index, but ensure it's valid
+            if 0 <= previous_state['index'] < len(self.navigable_widgets):
+                self.set_focus(previous_state['index']) 
+            else:
+                 # If the index is no longer valid (e.g., list size changed), reset to 0
+                self.set_focus(0)
 
-        self.root.after(20, self._poll_gamepad_events) # Poll more frequently for responsiveness
-
-    # ### NEW: Methods for managing focus ###
-    def _navigate_menu(self, direction: int):
-        """Move the focus up or down in the widget list."""
+    def move_focus(self, direction: int):
+        """
+        Moves the focus up (-1) or down (1) on the navigable widgets list.
+        """
         if not self.navigable_widgets:
             return
 
-        # Calculate the new index, wrapping around if necessary
-        old_index = self.current_focus_index
-        new_index = (old_index + direction) % len(self.navigable_widgets)
-        
-        self._update_focus(old_index, new_index)
-        
-        # Garantir que o widget focado esteja visível, especialmente em listas longas (GameListFrame)
+        new_index = self.current_focus_index + direction
+        num_widgets = len(self.navigable_widgets)
+
+        # Handle wrap around
+        if new_index < 0:
+            new_index = num_widgets - 1
+        elif new_index >= num_widgets:
+            new_index = 0
+
+        self.set_focus(new_index)
+
+    def set_focus(self, new_index: int):
+        """
+        Applies focus style to the new widget and removes it from the old one.
+        Also handles scrolling for frames with a scrollable Canvas.
+        """
+        if not self.navigable_widgets or self.current_focus_index == new_index:
+            return
+
+        # 1. Remove focus style from the old widget
+        if self.current_focus_index != -1:
+            old_widget = self.navigable_widgets[self.current_focus_index]
+            # Determine the original style based on widget type
+            if isinstance(old_widget, ttk.Button):
+                old_widget.config(style='Small.TButton')
+            elif isinstance(old_widget, ttk.Label):
+                old_widget.config(style='Remapper.TLabel') # Assuming Remapper.TLabel is the base style
+            # For other widgets, you might need more specific logic
+
+        # 2. Apply focus style to the new widget
         new_widget = self.navigable_widgets[new_index]
-        current_frame = new_widget.winfo_toplevel().winfo_children()[0].winfo_children()[0]
+        if isinstance(new_widget, ttk.Button):
+            new_widget.config(style='Focus.TButton')
+        elif isinstance(new_widget, ttk.Label):
+            new_widget.config(style='Focus.TLabel') # Assuming Focus.TLabel is the focus style
 
-        # Se o frame atual for GameListFrame e o widget focado estiver no canvas...
-        if isinstance(current_frame, GameListFrame) and new_widget != current_frame.back_button:
-            current_frame.scroll_to_widget(new_widget)
+        # 3. Update the index
+        self.current_focus_index = new_index
 
-    def _update_focus(self, old_index: int, new_index: int):
-        """Update the visual style of the buttons to show focus."""
-        # 1. Remove focus from the old widget, if it exists
-        if old_index != -1 and old_index < len(self.navigable_widgets):
-            widget = self.navigable_widgets[old_index]
-            
-            # ### CORREÇÃO DE RESTAURAÇÃO DE FOCO (Baseado no tipo) ###
-            if isinstance(widget, ttk.Label):
-                # Se for Label, restaura para o estilo base do Remapper Label
-                original_style = 'Remapper.TLabel' 
-            else: # Deve ser um Button
-                text = widget.cget('text')
+        # 4. Handle scrolling if the current frame has a canvas (e.g., GamesListFrame)
+        if self.current_frame is None: # Defensive check for initialization phase
+            return
+
+        current_frame = self.frames[self.current_frame_name] # or however you get the current frame
+        if hasattr(current_frame, 'scroll_to_selected_widget'):
+            current_frame.scroll_to_selected_widget(new_index)  
+
+    def activate_focus(self):
+        """
+        Simulates a click on the currently focused widget.
+        """
+        if self.current_focus_index != -1 and self.navigable_widgets:
+            focused_widget = self.navigable_widgets[self.current_focus_index]
+            # Trigger the command/action associated with the widget
+            if isinstance(focused_widget, ttk.Button) and focused_widget.cget('command'):
+                focused_widget.invoke()
+            elif isinstance(focused_widget, ttk.Label):
+                # This is a label in the remapper (RemapperFrame).
+                # The label's action is tied to its parent frame, which uses the click to trigger the picker.
+                # In this specific case, we simulate the click event which the remapper_gui uses.
+                current_frame_name = self.current_frame.__class__.__name__
+                if current_frame_name == 'ControllerRemapperFrame':
+                    # Need to get the friendly name from the label and call the handler
+                    # The focused widget text is the key value (e.g., "ENTER"), which is not enough.
+                    # This interaction needs to be handled within the ControllerRemapperFrame.
+                    if hasattr(self.current_frame, 'activate_focus_element') and callable(self.current_frame.activate_focus_element):
+                        # Assuming the remapper frame has a method to activate the selected element
+                        self.current_frame.activate_focus_element(focused_widget)
+                    else:
+                        print("Warning: Remapper frame missing activate_focus_element method.")
                 
-                if "CONFIGURE" in text:
-                    original_style = 'Remapper.TButton'
-                elif "Back to Consoles" in text or not text: 
-                     original_style = 'Small.TButton'
-                else: 
-                    original_style = 'Game.TButton'
-
-            widget.configure(style=original_style)
-
-        # 2. Apply focus to the new widget
-        if new_index != -1 and new_index < len(self.navigable_widgets):
-            widget = self.navigable_widgets[new_index]
+            # After activation, remove the visual focus to ensure consistency when the frame changes
+            # self.set_focus(-1) # Do not remove focus yet, let the frame change handle it
             
-            # ### CORREÇÃO CRÍTICA: USAR O ESTILO CORRETO (Baseado no tipo) ###
-            if isinstance(widget, ttk.Button):
-                focus_style = 'Focus.TButton'
-            elif isinstance(widget, ttk.Label):
-                # Aplicar o estilo específico de Label para manter a geometria
-                focus_style = 'Focus.TLabel' 
-            else:
-                focus_style = 'Focus.TButton' # Fallback
-                
-            widget.configure(style=focus_style)
-            self.current_focus_index = new_index
+    # --- END: Navigation Methods ---
+    
+
+    def scroll_to_widget(self, widget):
+        """
+        Adjusts the canvas scroll position to ensure the target widget is visible.
+        This is designed to work with GamesListFrame which has a Canvas setup.
+        """
+        current_frame_name = self.current_frame.__class__.__name__
+        if current_frame_name != 'GamesListFrame' or not hasattr(self.current_frame, 'canvas'):
+            return
             
+        # 1. Get necessary dimensions and coordinates relative to the canvas's scroll region (list_frame)
+        canvas = self.current_frame.canvas
+        list_frame = self.current_frame.list_frame
+        
+        # Calculate widget's position and size
+        widget.update_idletasks()
+        widget_y_rel = widget.winfo_y() # y-coordinate relative to its master (list_frame)
+        widget_height = widget.winfo_height()
+        widget_y1 = widget_y_rel # Top of the widget relative to list_frame top
+        widget_y2 = widget_y_rel + widget_height # Bottom of the widget relative to list_frame top
+
+        # Get the total scrollable height
+        list_frame.update_idletasks()
+        list_frame_height = list_frame.winfo_reqheight() 
+
+        # Get the current visible area of the canvas
+        canvas.update_idletasks()
+        canvas_height = canvas.winfo_height()
+        
+        canvas_view_start_fraction = float(canvas.yview()[0])
+        canvas_view_start = canvas_view_start_fraction * list_frame_height
+        canvas_view_end = canvas_view_start + canvas_height
+
+        # 3. Calculate the required scroll
+        # If the widget is above the view, scroll up
+        if widget_y1 < canvas_view_start:
+            # Scroll up so the top of the widget aligns with the top of the view
+            target_fraction = (widget_y1) / list_frame_height 
+            canvas.yview_moveto(max(0.0, target_fraction))
+        
+        # If the widget is below the view, scroll down
+        elif widget_y2 > canvas_view_end:
+            # Scroll down so the bottom of the widget aligns with the bottom of the view
+            target_fraction = (widget_y2 - canvas_height) / list_frame_height 
+            canvas.yview_moveto(min(1.0, target_fraction))
+
+
+    # --- Remaining App Methods (show_frame, start_pygame, poll_joystick_events, etc.) ---
+    
     def setup_styles(self):
-        self.big_font = Font(family='Helvetica', size=24, weight='bold')
-        self.style = ttk.Style()
-        self.style.theme_use('clam')
-        self.style.configure('Main.TFrame', background="dark green")
-        self.style.configure('Small.TButton', padding=15, relief='raised', foreground='black')
-        self.style.configure('Game.TButton', font=('Helvetica', 20, 'bold'), padding=20, background='white', foreground='black', relief='raised')
-        self.style.map('Small.TButton', background=[('active', "#2ad6d6")])
-        self.style.map('Custom.TButton', background=[('active', 'white'),('pressed','light green')])
-        self.style.configure('Remapper.TButton', font=('Helvetica', 18, 'bold'), foreground='black',
-            background='white', padding=(25, 12), relief='raised', borderwidth=5)
-        self.style.map('Remapper.TButton', background=[('active', '#2ad6d6')])
+        self.style.configure('Main.TFrame', background='dark green')
+        # Define a base style for the button to make sure it looks good
+        self.style.configure('Small.TButton', font=self.big_font, padding=30, relief='flat', foreground='white')
+        self.style.map('Small.TButton', background=[('active', '#2980b9'), ('pressed', '#1c638e'), ('focus', '#3498db')])
         
-        # ### NEW: Style for the visually focused button ###
-        self.style.configure(
-            'Game.TButton', 
-            font=('Helvetica', 18, 'bold'), # Ajustado para font 18 (igual ao Focus.TButton)
-            padding=(25, 12), 
-            background='white', 
-            foreground='black', 
-            relief='raised',
-            borderwidth=5 
-        )
-
-        self.style.configure(
-            'Remapper.TLabel', 
-            font=('Helvetica', 16), 
-            background='dark green', 
-            foreground='white',
-            relief='raised', 
-            borderwidth=2,
-            padding=(5, 5))
-        
-        self.style.configure(
-            'Focus.TLabel', 
-            font=('Helvetica', 16), 
-            background='#52D171', # Cor de Foco
-            foreground='black',
-            relief='raised', 
-            borderwidth=2,
-            padding=(5, 5)
-        )
+        # Styles for the Remapper Frame
+        self.style.configure('Remapper.TLabel', font=('Helvetica', 16), background='lightgrey', foreground='black', padding=5)
+        self.style.configure('Focus.TLabel', background='#2980b9', foreground='white', font=('Helvetica', 16), padding=5, relief='solid', borderwidth=3)
+        self.style.configure('Focus.TButton', background='#2980b9', foreground='white', font=self.big_font, padding=30, relief='solid', borderwidth=3)
+        self.style.configure('Title.TLabel', font=('Helvetica', 24, 'bold'), foreground='white', background='dark green')
         
     def load_games_data(self, json_path):
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -264,193 +272,173 @@ class TouchMenuApp:
         if os.path.exists(full_path):
             try:
                 with open(full_path, 'r') as f:
-                    self.games_data = json.load(f)
+                    self.games_data = json.load(f) # <--- JSON data (console structure) is loaded here
             except Exception as e:
                 print(f"Error reading games.json: {e}")
         else:
             print(f"JSON file not found at: {full_path}")
 
-    def launch_game(self, game):
-        print(f"Launching: {game['name']}")
-        core_path, rom_path = game.get("core"), game.get("path")
+    def show_frame(self, page_name):
+        """Show a frame for the given page name"""
+        frame = self.frames[page_name]
+        frame.tkraise()
+        self.current_frame = frame
+        # ### NEW FIX: Store the name of the current frame ###
+        self.current_frame_name = page_name
+        
+        # Try to get navigable widgets from the new frame
+        self.navigable_widgets = []
+        self.current_focus_index = -1
+        if hasattr(frame, 'get_navigable_widgets') and callable(frame.get_navigable_widgets):
+            self.set_navigable_widgets(frame.get_navigable_widgets())
+            
+        # Call on_show lifecycle method if it exists (for refreshing data)
+        if hasattr(frame, 'on_show') and callable(frame.on_show):
+            frame.on_show()
+
+
+    def start_pygame(self):
+        # Initialize Pygame for joystick handling
         try:
-            command = ["retroarch"]
-            if core_path and os.path.exists(core_path):
-                command.extend(["-L", core_path])
-            command.append(rom_path)
-            subprocess.run(command)
-        except Exception as e:
+            pygame.init()
+            pygame.joystick.init()
+            if pygame.joystick.get_count() > 0:
+                self.joystick = pygame.joystick.Joystick(0)
+                self.joystick.init()
+                print(f"Joystick detected: {self.joystick.get_name()}")
+            else:
+                print("No joystick detected.")
+        except pygame.error as e:
+            print(f"Pygame/Joystick initialization error: {e}")
+
+    def poll_joystick_events(self):
+        # Process Pygame events
+        # Use time.time() * 1000 for milliseconds instead of winfo_time()
+        current_time_ms = int(time.time() * 1000) 
+        
+        for event in pygame.event.get():
+            if event.type == pygame.JOYAXISMOTION:
+                self.handle_axis_motion(event, current_time_ms)
+            elif event.type == pygame.JOYBUTTONDOWN:
+                self.handle_button_press(event)
+            elif event.type == pygame.JOYBUTTONUP:
+                self.handle_button_release(event)
+            elif event.type == pygame.JOYHATMOTION:
+                self.handle_hat_motion(event, current_time_ms)
+
+        # Re-schedule the polling
+        self.root.after(10, self.poll_joystick_events)
+
+    def handle_axis_motion(self, event, current_time_ms):
+        # Simplified threshold for D-pad simulation on analog sticks
+        axis = event.axis
+        value = event.value
+        THRESHOLD = 0.5
+        
+        # Check for L-Stick (Axis 0 horizontal, Axis 1 vertical)
+        if axis == 0 and abs(value) > THRESHOLD: # X-axis
+            if current_time_ms - self.last_nav_time > self.NAV_DEBOUNCE_MS:
+                self.last_nav_time = current_time_ms
+                if value < 0: # Left
+                    pass # Not typically used for vertical menu navigation
+                else: # Right
+                    pass # Not typically used for vertical menu navigation
+        elif axis == 1 and abs(value) > THRESHOLD: # Y-axis
+            if current_time_ms - self.last_nav_time > self.NAV_DEBOUNCE_MS:
+                self.last_nav_time = current_time_ms
+                if value < 0: # Up
+                    self.move_focus(-1)
+                else: # Down
+                    self.move_focus(1)
+
+    def handle_hat_motion(self, event, current_time_ms):
+        # D-pad (hat 0) movement
+        x, y = event.value
+        if y != 0 and current_time_ms - self.last_nav_time > self.NAV_DEBOUNCE_MS:
+            self.last_nav_time = current_time_ms
+            self.move_focus(-y) # y is 1 (down) or -1 (up)
+
+    def handle_button_press(self, event):
+        button = event.button
+        
+        # A button (confirm action) - Assuming button 0 (Cross/X on some controllers)
+        if button == 0:
+            self.activate_focus()
+
+        # B button (back action) - Assuming button 1 (Circle/C on some controllers)
+        elif button == 1:
+            # Simple back logic: go back to the MainMenuFrame if not there
+            current_frame_name = self.current_frame.__class__.__name__
+            if current_frame_name == 'GamesListFrame':
+                self.show_frame('MainMenuFrame')
+            elif current_frame_name == 'ControllerRemapperFrame':
+                # The remapper frame should handle its own back/save logic
+                # For now, we'll assume the Save & Return button is the only way out
+                pass 
+            elif current_frame_name != 'MainMenuFrame':
+                self.show_frame('MainMenuFrame')
+
+        # Shoulder buttons for quick frame navigation
+        if button in self.SHOULDER_BUTTONS:
+            self.held_shoulder_buttons.add(button)
+            # Example: R1 + L1 to quit
+            if 4 in self.held_shoulder_buttons and 5 in self.held_shoulder_buttons:
+                self.root.quit()
+        
+        # Stick buttons (e.g., L3/R3) for fast console switching if needed
+        # elif button in self.STICK_BUTTONS:
+        #     # Quick console switch logic could go here
+        #     pass
+
+    def handle_button_release(self, event):
+        button = event.button
+        if button in self.held_shoulder_buttons:
+            self.held_shoulder_buttons.discard(button)
+
+    def launch_game(self, game_data):
+        """
+        Launches the game using the RetroArch core and file path.
+        """
+        RETROARCH_BIN = "retroarch"
+        
+        # Construct the command
+        command = [
+            RETROARCH_BIN,
+            '-L', game_data['core'], 
+            game_data['path']
+            # '-f' # Uncomment for fullscreen
+        ]
+
+        print(f"Executing command: {' '.join(command)}")
+        
+        try:
+            # Hide the GUI window before launching the game
+            self.root.withdraw() 
+            
+            # Use subprocess.run to block until the game exits
+            subprocess.run(command, check=True)
+            
+            # Show the GUI window again after the game exits
+            self.root.deiconify()
+            
+        except FileNotFoundError:
+            print("Error: RetroArch executable not found. Please ensure it is installed and in your PATH.")
+            # Use messagebox.showerror if this were a production app
+            # messagebox.showerror("Error", "RetroArch executable not found.")
+            self.root.deiconify()
+        except subprocess.CalledProcessError as e:
             print(f"Error launching game: {e}")
+            # messagebox.showerror("Error", f"Game failed to launch: {e}")
+            self.root.deiconify()
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+            # messagebox.showerror("Error", f"An unexpected error occurred: {e}")
+            self.root.deiconify()
 
-class MainMenuFrame(ttk.Frame):
-    def __init__(self, parent, controller):
-        super().__init__(parent, style='Main.TFrame')
-        self.controller = controller
-        # ### NEW: Store buttons for navigation ###
-        self.navigable_buttons = []     
-
-        ttk.Label(self, text="Select Console", 
-                  font=controller.big_font, 
-                  foreground='green', 
-                  padding=(25, 12), 
-                  relief= 'flat', 
-                  borderwidth=5,).pack(pady=40, padx=20)
-        
-        Remapper_btn = ttk.Button(self, text="GAMEPAD CONFIGURE ⌨️",
-                   command=lambda: controller.show_frame("ControllerRemapperFrame"), 
-                   style='Remapper.TButton')
-        Remapper_btn.pack(pady=20, padx=50)
-        self.navigable_buttons.append(Remapper_btn)
-
-        # container dos botões dos consoles
-        self.console_container = ttk.Frame(self, style="Console.TFrame")
-        self.console_container.pack(fill="both", pady=20)
-
-        self.console_container = ttk.Frame(self, style='Main.TFrame')
-        self.console_container.pack(pady=20)
-        
-        self.generate_console_buttons()
-    
-
-    # ### NEW: Expose the list of buttons to the main controller ###
-    def get_navigable_widgets(self):
-        return self.navigable_buttons
-
-    def generate_console_buttons(self):
-        for widget in self.console_container.winfo_children():
-            widget.destroy()
-
-        self.navigable_buttons = self.navigable_buttons[:1]
-
-        consoles = self.controller.games_data.keys()
-        if not consoles:
-            ttk.Label(self.console_container, text="No consoles found in games.json.").pack()
-            return
-
-        for console_name in consoles:
-            image = self.controller.console_images.get(console_name)
-
-            btn = ttk.Button(
-                self.console_container,
-                image=image if image else None,
-                text="" if image else console_name,
-                command=lambda c=console_name: self.controller.show_frame("GameListFrame", console_name=c),
-                style='Small.TButton'
-            )
-
-            btn.pack(fill='x', pady=10)
-            self.navigable_buttons.append(btn)
+    # --- END: Game Launch Methods ---
 
 
-class GameListFrame(ttk.Frame):
-    def __init__(self, parent, controller):
-        super().__init__(parent, style='Main.TFrame')
-        self.controller = controller
-        self.console_name = None
-        self.navigable_buttons = []
-        
-        # 1. Header (Top Row)
-        self.header_label = ttk.Label(self, text="", font=controller.big_font)
-        self.header_label.grid(row=0, column=0, columnspan=2, pady=10) # <-- USE GRID
-        
-        # 2. Setup Canvas and Scrollbar (Middle Row)
-        self.canvas = tk.Canvas(self, bg='dark green', highlightthickness=0) # <-- CORRECT PARENT: self
-        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview) # <-- CORRECT PARENT: self
-
-        self.canvas.grid(row=1, column=0, sticky="nsew", padx=50) # <-- USE GRID
-        self.scrollbar.grid(row=1, column=1, sticky="ns") # <-- USE GRID
-        
-        # 3. Inner Frame for Buttons inside the Canvas
-        # All game buttons will be packed inside this frame
-        self.list_frame = ttk.Frame(self.canvas, style='Main.TFrame')
-        self.canvas.create_window((0, 0), window=self.list_frame, anchor="nw")
-
-        # Configure Canvas scrolling
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-        
-        # Altere o lambda para usar o método bbox na lista de quadros
-        self.list_frame.bind("<Configure>", lambda e: self.canvas.configure(
-            scrollregion=self.canvas.bbox("all"),
-            width=self.canvas.winfo_width()
-        ))
-        
-        # Otimização: Adicione uma reconfiguração do scrollregion inicial
-        self.list_frame.bind("<Map>", lambda e: self.canvas.configure(
-            scrollregion=self.canvas.bbox("all")
-        ))
-        
-        # 4. Back Button (Bottom Row)
-        back_btn = ttk.Button(self, text="← Back to Consoles",
-                   command=lambda: controller.show_frame("MainMenuFrame"), 
-                   style='Small.TButton')
-        back_btn.grid(row=2, column=0, columnspan=2, pady=20) # <-- USE GRID
-        self.back_button = back_btn
-
-        # Configure weights for the grid to make the canvas expand
-        self.grid_rowconfigure(1, weight=1) # The Canvas row gets the extra space
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=0) 
-        
-    # ### NEW: Expose the list of buttons to the main controller ###
-    def get_navigable_widgets(self):
-        return self.navigable_buttons
-
-    def set_console(self, console_name):
-        self.console_name = console_name
-        self.header_label.config(foreground='green', borderwidth=5, padding=(25, 12), text=f"Games - {console_name}")
-
-    def generate_game_list(self):
-        for widget in self.list_frame.winfo_children():
-            widget.destroy()
-        
-        # ### NEW: Clear and repopulate the game buttons in the navigation list ###
-        self.navigable_buttons.clear()
-        
-        if not self.console_name: return
-
-        for game in self.controller.games_data.get(self.console_name, []):
-            btn = ttk.Button(self.list_frame, text=game['name'], 
-                       command=lambda g=game: self.controller.launch_game(g),
-                       style='Game.TButton', )
-            btn.pack(fill='x', pady=5)
-            self.navigable_buttons.append(btn)
-        
-        # Add the back button to the end of the navigation list
-        self.navigable_buttons.append(self.back_button)
-    
-    def scroll_to_widget(self, widget):
-        """Scrolls the canvas to ensure the given widget is visible."""
-        # 1. Obter as coordenadas do widget (relativas ao list_frame)
-        self.list_frame.update_idletasks()
-        widget_y1 = widget.winfo_y()
-        widget_height = widget.winfo_height()
-        widget_y2 = widget_y1 + widget_height
-        
-        # Obter a altura total do frame interno (list_frame)
-        list_frame_height = self.list_frame.winfo_height()
-        if list_frame_height == 0:
-            return
-
-        # 2. Obter a área de visualização atual do canvas
-        canvas_height = self.canvas.winfo_height()
-        
-        # A posição 0 (topo) da rolagem é uma fração. O denominador deve ser list_frame_height
-        canvas_view_start_fraction = float(self.canvas.yview()[0])
-        # Converter a fração da vista atual para pixels (referente ao list_frame)
-        canvas_view_start = canvas_view_start_fraction * list_frame_height
-        canvas_view_end = canvas_view_start + canvas_height
-
-        # 3. Calcular a rolagem necessária
-        # Se o widget estiver acima da vista, mova o topo do widget para o topo da vista
-        if widget_y1 < canvas_view_start:
-            # Rolar para que o topo do widget fique no topo da vista.
-            # Adicione uma margem (padding) para que não fique colado no topo.
-            target_fraction = (widget_y1 - widget_height) / list_frame_height # Desloca o topo do widget um pouco acima da vista
-            self.canvas.yview_moveto(max(0.0, target_fraction))
-        
-        # Se o widget estiver abaixo da vista, mova o fundo do widget para o fundo da vista
-        elif widget_y2 > canvas_view_end:
-            # Rolar para que o fundo do widget fique no fundo da vista.
-            # Adicione uma margem (padding) para que não fique colado no fundo.
-            target_fraction = (widget_y2 - canvas_height + widget_height) / list_frame_height # Desloca o fundo do widget um pouco abaixo da vista
-            self.canvas.yview_moveto(min(1.0, target_fraction))
+if __name__ == '__main__':
+    # This block is for testing only, not part of the main application flow
+    # It assumes the existence of other frames like MainMenuFrame and GamesListFrame
+    pass

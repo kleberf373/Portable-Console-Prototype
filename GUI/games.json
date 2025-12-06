@@ -1,16 +1,3 @@
 {
-    "Game Boy": [
-        {
-            "name": "none",
-            "path": "/home/kleber/Downloads/games/none.gb",
-            "core": "/home/kleber/.config/retroarch/cores/gambatte_libretro.so"
-        }
-    ],
-    "Playstation 1": [
-        {
-            "name": "crash",
-            "path": "/home/kleber/Downloads/games/crash.cue",
-            "core": "/home/kleber/.config/retroarch/cores/pcsx_rearmed_libretro.so"
-        }
-    ]
+    
 }
