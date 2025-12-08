@@ -6,7 +6,7 @@ EXTRACT_DIR="$HOME/Downloads/games"
 DECOMPRESSOR_SCRIPT="$HOME/Portable-Console-Prototype/decompressor/decompressor.sh"
 OUTPUT_FILE="$HOME/Portable-Console-Prototype/decompressor/cache.txt"
 LOG_FILE="$HOME/decompression.log"
-PYTHON_SCRIPT="jsonconverter.py"
+PYTHON_SCRIPT="$HOME/Portable-Console-Prototype/decompressor/jsonconverter.py"
 PYTHON_SCRIPT_ARGS="$OUTPUT_FILE $EXTRACT_DIR -o $HOME/Portable-Console-Prototype/GUI/games.json"
 # Add this line to the top of monitor.sh with your other configurations
 USB_COPIER_SCRIPT="$HOME/Portable-Console-Prototype/decompressor/check_usb_devices.sh" 
@@ -60,9 +60,9 @@ run_json_converter() {
     if [ ! -f "$output_file" ]; then log_message "WARNING: Games list file not found: $output_file. Skipping JSON conversion."; return 1; fi
     local rom_count=$(wc -l < "$output_file" 2>/dev/null || echo 0)
     if [ "$rom_count" -eq 0 ]; then log_message "WARNING: No ROMs found in $output_file. Skipping JSON conversion."; return 1; fi
-    log_message "Running JSON converter: python3 $PYTHON_SCRIPT $PYTHON_SCRIPT_ARGS"
-    if python3 "$PYTHON_SCRIPT" cache.txt "$EXTRACT_DIR" -o games.json; then
-        log_message "✓ JSON conversion successful. Output: $EXTRACT_DIR/games.json"
+    log_message "Running JSON converter: python3 $PYTHON_SCRIPT $output_file $EXTRACT_DIR -o $HOME/Portable-Console-Prototype/GUI/games.json"
+    if python3 "$PYTHON_SCRIPT" "$output_file" "$EXTRACT_DIR" -o "$HOME/Portable-Console-Prototype/GUI/games.json"; then
+        log_message "✓ JSON conversion successful. Output: $HOME/Portable-Console-Prototype/GUI/games.json"
         log_message "✓ Converted $rom_count ROMs to JSON format"
         return 0
     else

@@ -1,21 +1,20 @@
-# DualShock 2 Buttons mapped to RetroArch default keyboard controls
-
-# Face Buttons (Right Hand)
 0=KEY_X
 1=KEY_C
 2=KEY_S
 3=KEY_D
 
-# Shoulder Buttons (Top)
 4=KEY_Q
 5=KEY_W
 6=KEY_A
 7=KEY_Z
 
-# Center Buttons
-8=KEY_LEFTSHIFT
+8=KEY_RIGHTSHIFT
 9=KEY_ENTER
 
-# Stick Clicks
 10=KEY_1
 11=KEY_2
+
+0_-1=KEY_LEFT
+0_1=KEY_RIGHT
+1_-1=KEY_UP
+1_1=KEY_DOWN

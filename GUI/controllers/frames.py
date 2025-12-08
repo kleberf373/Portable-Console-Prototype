@@ -20,10 +20,13 @@ class BaseFrame(ttk.Frame):
         # this will be the buttons *inside* the scrollable area.
         return self.navigable_buttons
 
-    def on_show(self):
-        """Method called when the frame is brought to the front."""
-        # Used for refreshing data, like the game list
-        pass
+    def on_show(self, console_name=None):
+        if console_name:
+            # Code here to filter and display games for the given console_name
+            self.load_games_for_console(console_name)
+        else:
+            # Default behavior if called without a console name
+            pass
 
 
 class MainMenuFrame(BaseFrame):
@@ -79,7 +82,7 @@ class MainMenuFrame(BaseFrame):
             
         for console_name in consoles:
             btn = ttk.Button(self.console_container, text=console_name, 
-                       command=lambda c=console_name: self.controller.show_frame("GameListFrame", console_name=c),
+                       command=lambda c=console_name: self.controller.show_frame("GamesListFrame", console_name=c),
                        style='Small.TButton')
             btn.pack(side=tk.LEFT, padx=10, pady=10)
             self.navigable_buttons.append(btn)
@@ -130,9 +133,18 @@ class GamesListFrame(BaseFrame):
         self.back_button = back_btn
         self.navigable_buttons.append(self.back_button) # Add back button to navigation list
 
-    def on_show(self):
-        """Called when games list is shown. Ensures data is fresh."""
-        self.generate_console_list()
+    def on_show(self, console_name=None, **kwargs):
+        """
+        Called when games list is shown. If a console is specified, jump 
+        straight to the game list for that console; otherwise, show the 
+        list of consoles.
+        """
+        if console_name:
+            # If console_name is passed (from MainMenuFrame button click)
+            self.generate_game_list(console_name)
+        else:
+            # If called with no arguments (e.g., from a 'back' button)
+            self.generate_console_list()
 
     def generate_console_list(self):
         """Populates the list with console buttons."""

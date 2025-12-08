@@ -41,7 +41,7 @@ class MonitorFrame(ttk.Frame):
         self.thread = None
         self.return_frame_name = "MainMenuFrame" # Where to return after the process finishes
 
-    def on_show(self, return_to: str = "MainMenuFrame"):
+    def on_show(self, return_to: str = "MainMenuFrame", **kwargs):
         """Called when the frame is shown to reset state."""
         self.return_frame_name = return_to
         self.label.config(text="Running monitor.sh...\nPlease wait or press [B] to return.")
@@ -418,12 +418,11 @@ class TouchMenuApp:
         else:
             print(f"JSON file not found at: {full_path}")
 
-    def show_frame(self, page_name):
-        """Show a frame for the given page name"""
+    def show_frame(self, page_name, **kwargs):
+        """Show a frame for the given page name and pass optional data via kwargs"""
         frame = self.frames[page_name]
         frame.tkraise()
         self.current_frame = frame
-        # ### NEW FIX: Store the name of the current frame ###
         self.current_frame_name = page_name
         
         # Try to get navigable widgets from the new frame
@@ -433,13 +432,15 @@ class TouchMenuApp:
             self.set_navigable_widgets(frame.get_navigable_widgets())
             
         # Call on_show lifecycle method if it exists (for refreshing data)
-        # --- MODIFIED: Pass current frame name to MonitorFrame on_show ---
+        # MODIFIED: Pass all kwargs to on_show
         if page_name == 'MonitorFrame':
-             # The MonitorFrame's on_show expects a 'return_to' argument, but it's called
-             # by the caller (e.g. start_script) for its specific logic. We skip the generic call here.
-             pass
+            # The MonitorFrame's on_show expects a 'return_to' argument, but it's called
+            # by the caller (e.g. start_script) for its specific logic. We skip the generic call here.
+            pass
         elif hasattr(frame, 'on_show') and callable(frame.on_show):
-            frame.on_show()
+            # Pass the keyword arguments to the frame's on_show method
+            # GamesListFrame will use console_name=c from kwargs
+            frame.on_show(**kwargs)
 
 
     def start_pygame(self):
@@ -561,6 +562,7 @@ class TouchMenuApp:
             game_data['path']
             # '-f' # Uncomment for fullscreen
         ]
+        joystick = "./Portable-Console-Prototype/GUI/joystick"
 
         print(f"Executing command: {' '.join(command)}")
         
@@ -570,7 +572,6 @@ class TouchMenuApp:
             
             # Use subprocess.run to block until the game exits
             subprocess.run(command, check=True)
-            
             # Show the GUI window again after the game exits
             self.root.deiconify()
             

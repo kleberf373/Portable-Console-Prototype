@@ -11,7 +11,7 @@
 // --- Configuration Constants ---
 #define JOYSTICK_DEVICE "/dev/input/js0"
 #define UINPUT_DEVICE "/dev/uinput"
-#define CONFIG_FILE "map.txt"
+#define CONFIG_FILE "./Portable-Console-Prototype/GUI/map.txt"
 #define MAX_BUTTONS 30 
 #define MAX_AXES 10 
 #define AXIS_THRESHOLD 10000 // Analog value required to trigger a keypress (out of 32767)
@@ -29,7 +29,7 @@ int key_map_axes[MAX_AXES][2] = {0};
 // State Tracking: Tracks if an axis direction is currently "pressed" (-1, 0, or 1)
 int axis_state[MAX_AXES] = {0};
 
-
+char config_file_path[512];
 /**
  * Maps a string key name (e.g., "KEY_X") to its integer code.
  * Includes all required RetroArch movement keys.
@@ -43,7 +43,7 @@ int key_name_to_code(const char *key_name) {
     if (strcmp(key_name, "KEY_W") == 0) return KEY_W;
     if (strcmp(key_name, "KEY_A") == 0) return KEY_A;
     if (strcmp(key_name, "KEY_Z") == 0) return KEY_Z;
-    if (strcmp(key_name, "KEY_LEFTSHIFT") == 0) return KEY_LEFTSHIFT;
+    if (strcmp(key_name, "KEY_RIGHTSHIFT") == 0) return KEY_RIGHTSHIFT;
     if (strcmp(key_name, "KEY_ENTER") == 0) return KEY_ENTER;
     if (strcmp(key_name, "KEY_1") == 0) return KEY_1;
     if (strcmp(key_name, "KEY_2") == 0) return KEY_2;
@@ -64,6 +64,7 @@ int key_name_to_code(const char *key_name) {
  */
 int load_mapping() {
     FILE *file = fopen(CONFIG_FILE, "r");
+    printf("Loading mapping from: %s\n", config_file_path);
     if (!file) {
         perror("Error opening map.txt");
         return -1;
@@ -273,7 +274,19 @@ int main_loop(int joystick_fd, int uinput_fd) {
 int main() {
     int joystick_fd = -1;
     int uinput_fd = -1;
-    
+    const char *home_dir;
+
+    home_dir = getenv("HOME");
+    if (!home_dir) {
+        fprintf(stderr, "Error: HOME environment variable not set.\n");
+        return 1;
+    }
+    // Safely concatenate the path parts
+    if (snprintf(config_file_path, sizeof(config_file_path), "%s%s", home_dir, CONFIG_FILE) >= sizeof(config_file_path)) {
+        fprintf(stderr, "Error: Config file path is too long.\n");
+        return 1;
+    }
+
     // 1. Load mappings
     if (load_mapping() != 0) {
         return 1;

@@ -13,19 +13,16 @@ def get_core_for_extension(extension: str):
 
     """Map file extensions to RetroArch cores"""
     core_mapping = {
-        '.sfc': f'{home}/.config/retroarch/cores/snes9x_libretro.so',
-        '.smc': f'{home}/.config/retroarch/cores/snes9x_libretro.so',
-        '.gba': f'{home}/.config/retroarch/cores/mgba_libretro.so',
+        '.sfc': f'{home}/.config/retroarch/cores/bsnes_libretro.so',
+        '.smc': f'{home}/.config/retroarch/cores/bsnes_libretro.so',
+        '.gba': f'{home}/.config/retroarch/cores/mednafen_gba_libretro.so',
         '.gb': f'{home}/.config/retroarch/cores/gambatte_libretro.so',
         '.gbc': f'{home}/.config/retroarch/cores/gambatte_libretro.so',
         '.md': f'{home}/.config/retroarch/cores/genesis_plus_gx_libretro.so',
         '.gen': f'{home}/.config/retroarch/cores/genesis_plus_gx_libretro.so',
-        '.cue': f'{home}/.config/retroarch/cores/pcsx_rearmed_libretro.so',
-        '.bin': f'{home}/.config/retroarch/cores/pcsx_rearmed_libretro.so',
-        '.img': f'{home}/.config/retroarch/cores/pcsx_rearmed_libretro.so',
-        '.nes': f'{home}/.config/retroarch/cores/fceumm_libretro.so',
-        '.nds': f'{home}/.config/retroarch/cores/desmume_libretro.so',
-        '.iso': f'{home}/.config/retroarch/cores/pcsx_rearmed_libretro.so'
+        '.cue': f'{home}/.config/retroarch/cores/mednafen_psx_libretro.so',
+        '.bin': f'{home}/.config/retroarch/cores/mednafen_psx_libretro.so',
+        '.img': f'{home}/.config/retroarch/cores/mednafen_psx_libretro.so'
     }
     return core_mapping.get(extension.lower(), '')
 
